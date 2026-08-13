@@ -80,12 +80,36 @@ jobs:
           export default config;
           EOF
 
-      - name: Add Android platform
+            - name: Add Android platform
         run: npx cap add android
 
       - name: Add Firebase Android configuration
         run: |
+          test -f google-services.json
           cp google-services.json android/app/google-services.json
+          echo "Firebase config copied successfully"
+
+      - name: Configure Firebase Authentication Google provider
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/variables.gradle")
+          text = p.read_text()
+
+          old = "ext {"
+          new = """ext {
+              rgcfaIncludeGoogle = true
+              androidxCredentialsVersion = '1.3.0'"""
+
+          if "rgcfaIncludeGoogle" not in text:
+              if old not in text:
+                  raise SystemExit("ERROR: ext { block not found in variables.gradle")
+              text = text.replace(old, new, 1)
+
+          p.write_text(text)
+          print(p.read_text())
+          PY
 
       - name: Configure Google Services plugin
         working-directory: android
@@ -93,8 +117,30 @@ jobs:
           sed -i '/plugins {/a\    id "com.google.gms.google-services" version "4.4.3" apply false' build.gradle
           sed -i '/plugins {/a\    id "com.google.gms.google-services"' app/build.gradle
 
-      - name: Sync web application
+      - name: Sync web application and native plugins
         run: npx cap sync android
+
+      - name: Verify Android Firebase configuration
+        run: |
+          echo "===== Checking Firebase configuration ====="
+
+          test -f android/app/google-services.json
+          echo "✓ google-services.json exists"
+
+          grep -q '"package_name": "com.maheshtalagana.passbook"' android/app/google-services.json
+          echo "✓ Android package name matches"
+
+          grep -q 'rgcfaIncludeGoogle = true' android/variables.gradle
+          echo "✓ Google provider dependency enabled"
+
+          grep -q 'androidxCredentialsVersion' android/variables.gradle
+          echo "✓ Credential dependency version configured"
+
+          echo "===== variables.gradle ====="
+          cat android/variables.gradle
+
+          echo "===== Checking generated dependencies ====="
+          grep -R "googleid\|play-services-auth" android/app/build.gradle android/capacitor-cordova-android-plugins 2>/dev/null || true
 
       - name: Build debug APK
         working-directory: android
