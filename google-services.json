@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "903483976791-0sacm4a15d9fi9nd1m4gr2e4lr24ek84.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.maheshtalagana.passbook",
+            "certificate_hash": "9012cb46d6eacd1a4a0981a941ec3a586149aa18"
+          }
+        },
+        {
+          "client_id": "903483976791-89dr7qfeds0hmh082dc5doo2cpm9ecgp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.maheshtalagana.passbook",
+            "certificate_hash": "3e1b2c67b175f99ecef3848fb240bd3a972cd7fb"
+          }
+        },
+        {
           "client_id": "903483976791-t3kkj0jv8c3m7cm6e9mqgpclkqlri719.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
