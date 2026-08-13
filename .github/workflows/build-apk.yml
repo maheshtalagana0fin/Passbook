@@ -8,7 +8,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -94,16 +93,18 @@ jobs:
             -keypass navalarch0253 \
             -dname "CN=Mahesh, OU=Passbook, O=Personal, L=Mumbai, ST=Maharashtra, C=IN"
 
+      - name: Show permanent keystore SHA-1
+        working-directory: android
+        run: |
           keytool -list -v \
             -keystore passbook-release.keystore \
             -alias passbook \
-            -storepass navalarch0253
+            -storepass navalarch0253 | grep SHA1
 
       - name: Add Firebase Android configuration
         run: |
           test -f google-services.json
           cp google-services.json android/app/google-services.json
-          echo "Firebase config copied successfully"
 
       - name: Configure Firebase Authentication Google provider
         run: |
@@ -123,7 +124,6 @@ jobs:
               )
 
           p.write_text(text)
-          print(text)
           PY
 
       - name: Configure Google Services plugin
@@ -132,43 +132,64 @@ jobs:
           sed -i '/plugins {/a\    id "com.google.gms.google-services" version "4.4.3" apply false' build.gradle
           sed -i '/plugins {/a\    id "com.google.gms.google-services"' app/build.gradle
 
+      - name: Configure APK signing
+        working-directory: android
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("app/build.gradle")
+          text = p.read_text()
+
+          signing = """
+              signingConfigs {
+                  release {
+                      storeFile file("../passbook-release.keystore")
+                      storePassword "navalarch0253"
+                      keyAlias "passbook"
+                      keyPassword "navalarch0253"
+                  }
+              }
+          """
+
+          if "signingConfigs {" not in text:
+              text = text.replace("android {", "android {" + signing, 1)
+
+          text = text.replace(
+              "debug {",
+              """debug {
+                      signingConfig signingConfigs.release""",
+              1
+          )
+
+          p.write_text(text)
+          PY
+
       - name: Sync web application and native plugins
         run: npx cap sync android
 
-      - name: Verify Android Firebase configuration
-        run: |
-          echo "===== Checking Firebase configuration ====="
-
-          test -f android/app/google-services.json
-          echo "✓ google-services.json exists"
-
-          grep -q '"package_name": "com.maheshtalagana.passbook"' android/app/google-services.json
-          echo "✓ Android package name matches"
-
-          grep -q 'rgcfaIncludeGoogle = true' android/variables.gradle
-          echo "✓ Google provider enabled"
-
-          grep -q 'androidxCredentialsVersion' android/variables.gradle
-          echo "✓ Credential dependency configured"
-
-          echo "===== variables.gradle ====="
-          cat android/variables.gradle
-
-      - name: Build debug APK
-        working-directory: android
-        run: ./gradlew assembleDebug
-
-      - name: Show permanent keystore SHA-1
+      - name: Verify signing and Firebase configuration
         working-directory: android
         run: |
+          echo "===== Permanent keystore SHA-1 ====="
           keytool -list -v \
             -keystore passbook-release.keystore \
             -alias passbook \
             -storepass navalarch0253 | grep SHA1
 
-      - name: Show APK signing SHA-1
+          echo "===== APK signing report ====="
+          ./gradlew signingReport
+
+      - name: Build debug APK
         working-directory: android
-        run: ./gradlew signingReport
+        run: ./gradlew assembleDebug
+
+      - name: Upload permanent keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: Passbook-Permanent-Keystore
+          path: android/passbook-release.keystore
+          retention-days: 30
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
