@@ -87,6 +87,12 @@ jobs:
         run: |
           cp google-services.json android/app/google-services.json
 
+      - name: Configure Google Services plugin
+        working-directory: android
+        run: |
+          sed -i '/plugins {/a\    id "com.google.gms.google-services" version "4.4.3" apply false' build.gradle
+          sed -i '/plugins {/a\    id "com.google.gms.google-services"' app/build.gradle
+
       - name: Sync web application
         run: npx cap sync android
 
