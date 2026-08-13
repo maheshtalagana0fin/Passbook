@@ -1,0 +1,88 @@
+name: Build Passbook APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create Capacitor project
+        run: |
+          cat > package.json <<'EOF'
+          {
+            "name": "my-passbook",
+            "version": "1.0.0",
+            "private": true,
+            "scripts": {
+              "build": "echo No web build required"
+            },
+            "dependencies": {
+              "@capacitor/core": "^8.0.0"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "^8.0.0"
+            }
+          }
+          EOF
+
+          npm install
+
+      - name: Create web directory
+        run: |
+          mkdir -p www
+          cp index.html www/
+          cp manifest.json www/
+          cp sw.js www/
+          cp icon-192.png www/
+          cp icon-512.png www/
+
+      - name: Create Capacitor configuration
+        run: |
+          cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
+
+          const config: CapacitorConfig = {
+            appId: 'com.maheshtalagana.passbook',
+            appName: 'My Passbook',
+            webDir: 'www',
+            bundledWebRuntime: false
+          };
+
+          export default config;
+          EOF
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync web application
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-Passbook-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
