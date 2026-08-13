@@ -30,6 +30,14 @@
           }
         },
         {
+          "client_id": "903483976791-ejfi1f209nvcr6h48gq0ln7tob4tik8t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.maheshtalagana.passbook",
+            "certificate_hash": "a4e4369d237390c72e902e66eb5e374370674467"
+          }
+        },
+        {
           "client_id": "903483976791-t3kkj0jv8c3m7cm6e9mqgpclkqlri719.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
