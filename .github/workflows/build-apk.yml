@@ -80,6 +80,24 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
+      - name: Generate permanent signing keystore
+      working-directory: android
+      run: |
+        keytool -genkeypair \
+          -keystore passbook-release.keystore \
+          -alias passbook \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass navalarch0253 \
+          -keypass navalarch0253 \
+          -dname "CN=Mahesh, OU=Passbook, O=Personal, L=Mumbai, ST=Maharashtra, C=IN"
+
+        keytool -list -v \
+          -keystore passbook-release.keystore \
+          -alias passbook \
+          -storepass navalarch0253
+
       - name: Add Firebase Android configuration
         run: |
           test -f google-services.json
