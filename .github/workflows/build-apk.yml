@@ -83,10 +83,6 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
-      - name: Configure Firebase Google Sign-In
-        run: |
-          printf '\nrgcfaIncludeGoogle = true\n' >> android/variables.gradle
-
       - name: Show Debug SHA-1
         working-directory: android
         run: ./gradlew signingReport
