@@ -680,7 +680,7 @@
       try{
         if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseAuthentication){
           // Running inside the Android app — use native Google Sign-In
-          const result = await window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle();
+          const result = await window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle({useCredentialManager: false});
           const idToken = result && result.credential && result.credential.idToken;
           if (!idToken) throw new Error("No ID token returned from native sign-in");
           const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
