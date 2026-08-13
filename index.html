@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>My Passbook — Lifetime Finance Ledger</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#8c6d3f">
+<link rel="icon" href="icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --paper: #f4ecd8;
+    --paper-line: #d8c9a3;
+    --ink: #1f2d3d;
+    --ink-soft: #4a5568;
+    --gold: #9c7a2e;
+    --credit: #2f6f4e;
+    --debit: #b23a48;
+    --card: #fffdf7;
+    --shadow: 0 8px 24px rgba(31,45,61,0.12);
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background: #e7ddc4;
+    background-image:
+      radial-gradient(circle at 10% 10%, rgba(255,255,255,0.4), transparent 40%),
+      radial-gradient(circle at 90% 90%, rgba(0,0,0,0.05), transparent 40%);
+    font-family:'Inter', sans-serif;
+    color: var(--ink);
+    padding: 24px 16px 60px;
+    min-height:100vh;
+  }
+
+  .passbook{
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  /* Cover */
+  .cover{
+    background: linear-gradient(135deg, #1f2d3d 0%, #2c4258 60%, #1f2d3d 100%);
+    color: #f4ecd8;
+    border-radius: 10px 10px 0 0;
+    padding: 28px 30px 22px;
+    position: relative;
+    box-shadow: var(--shadow);
+    border: 1px solid #14202c;
+  }
+  .cover::after{
+    content:"";
+    position:absolute; left:0; top:14px; bottom:14px; width:10px;
+    background-image: repeating-linear-gradient(180deg, #e7ddc4 0 6px, transparent 6px 14px);
+    border-radius: 0 6px 6px 0;
+    opacity:0.85;
+  }
+  .cover-eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing: 0.18em;
+    font-size: 11px;
+    color: #c9a95f;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .cover-title{
+    font-family:'Libre Baskerville', serif;
+    font-size: 30px;
+    font-weight: 700;
+  }
+  .cover-sub{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #d8c9a3;
+    margin-top: 10px;
+  }
+  .cover-balance{
+    margin-top: 18px;
+    display:flex; align-items:baseline; gap:10px;
+  }
+  .cover-balance .label{ font-size:11px; letter-spacing:0.1em; color:#c9a95f; text-transform:uppercase;}
+  .cover-balance .amount{ font-family:'IBM Plex Mono', monospace; font-size: 26px; font-weight:600; }
+
+  /* Tabs */
+  .tabs{
+    display:flex;
+    background: #efe4c9;
+    border-left: 1px solid var(--paper-line);
+    border-right: 1px solid var(--paper-line);
+  }
+  .tab{
+    flex:1;
+    text-align:center;
+    padding: 12px 8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    cursor:pointer;
+    color: var(--ink-soft);
+    border-bottom: 3px solid transparent;
+    transition: all 0.15s ease;
+    user-select:none;
+  }
+  .tab:hover{ background: #e5d8b5; }
+  .tab.active{ color: var(--ink); border-bottom-color: var(--gold); font-weight:600; background:var(--card); }
+
+  .page{
+    background: var(--card);
+    border: 1px solid var(--paper-line);
+    border-top:none;
+    padding: 22px 22px 28px;
+    box-shadow: var(--shadow);
+  }
+  .page.last{ border-radius: 0 0 10px 10px; }
+
+  h2.section-title{
+    font-family:'Libre Baskerville', serif;
+    font-size: 17px;
+    margin-bottom: 14px;
+    color: var(--ink);
+    border-bottom: 2px solid var(--paper-line);
+    padding-bottom: 8px;
+  }
+
+  /* Form */
+  .form-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .form-grid .full{ grid-column: 1 / -1; }
+  label{
+    display:block;
+    font-size: 11px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 5px;
+    font-weight:600;
+  }
+  input, select{
+    width:100%;
+    padding: 9px 10px;
+    border: 1px solid var(--paper-line);
+    border-radius: 6px;
+    font-family:'Inter', sans-serif;
+    font-size: 14px;
+    background: #fffef9;
+    color: var(--ink);
+  }
+  input:focus, select:focus{ outline: 2px solid var(--gold); outline-offset:1px; }
+
+  .type-toggle{
+    display:flex; gap:8px; grid-column: 1/-1;
+  }
+  .type-btn{
+    flex:1; padding: 9px; text-align:center; border-radius:6px; cursor:pointer;
+    border:1px solid var(--paper-line); font-weight:600; font-size:13px;
+    background:#fffef9; color:var(--ink-soft); user-select:none;
+  }
+  .type-btn.active.income{ background: var(--credit); color:#fff; border-color:var(--credit); }
+  .type-btn.active.expense{ background: var(--debit); color:#fff; border-color:var(--debit); }
+
+  .submit-btn{
+    grid-column: 1/-1;
+    margin-top: 6px;
+    background: var(--ink);
+    color: #f4ecd8;
+    border:none;
+    padding: 11px;
+    border-radius: 6px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.05em;
+    cursor:pointer;
+    transition: background 0.15s;
+  }
+  .submit-btn:hover{ background: #34495e; }
+
+  /* Ledger */
+  .filter-row{
+    display:flex; gap:10px; margin-bottom:14px; align-items:center; flex-wrap:wrap;
+  }
+  .filter-row select{ width:auto; }
+  .ledger-table{
+    width:100%;
+    border-collapse: collapse;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+  }
+  .ledger-table thead th{
+    text-align:left;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform:uppercase;
+    color: var(--ink-soft);
+    padding: 6px 8px;
+    border-bottom: 2px solid var(--paper-line);
+  }
+  .ledger-table tbody tr{
+    border-bottom: 1px dashed var(--paper-line);
+  }
+  .ledger-table tbody tr:hover{ background: #faf5e6; }
+  .ledger-table td{ padding: 8px; vertical-align:middle; }
+  .amt-credit{ color: var(--credit); font-weight:600; }
+  .amt-debit{ color: var(--debit); font-weight:600; }
+  .del-btn, .edit-btn, .save-edit-btn, .cancel-edit-btn{
+    background:none; border:none; color: #b3a988; cursor:pointer; font-size:14px;
+    margin-right: 4px;
+  }
+  .del-btn:hover, .cancel-edit-btn:hover{ color: var(--debit); }
+  .edit-btn:hover, .save-edit-btn:hover{ color: var(--credit); }
+  .edit-row select, .edit-row input{
+    padding: 5px 6px;
+    font-size: 12.5px;
+    border: 1px solid var(--paper-line);
+    border-radius: 4px;
+    background:#fffef9;
+    color: var(--ink);
+    display:block;
+    width: 100%;
+    margin-bottom: 3px;
+  }
+  .empty-state{
+    text-align:center; padding: 40px 10px; color: var(--ink-soft); font-family:'Libre Baskerville', serif; font-style:italic;
+  }
+
+  /* Summary */
+  .stat-cards{
+    display:grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 20px;
+  }
+  .stat-card{
+    background: #faf5e6;
+    border: 1px solid var(--paper-line);
+    border-radius: 8px;
+    padding: 14px;
+    text-align:center;
+  }
+  .stat-card .label{ font-size:10.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-soft); }
+  .stat-card .value{ font-family:'IBM Plex Mono', monospace; font-size: 18px; font-weight:700; margin-top:4px; }
+  .stat-card.income .value{ color: var(--credit); }
+  .stat-card.expense .value{ color: var(--debit); }
+
+  .bar-row{ margin-bottom: 10px; }
+  .bar-label{ display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px; }
+  .bar-track{ height: 9px; background:#e9dfc4; border-radius: 5px; overflow:hidden; }
+  .bar-fill{ height:100%; background: linear-gradient(90deg, var(--gold), #c9a95f); border-radius:5px; }
+
+  .export-row{ display:flex; gap: 10px; margin-top: 18px; }
+  .export-btn{
+    flex:1; padding: 10px; border-radius: 6px; border: 1px solid var(--ink); background: transparent;
+    color: var(--ink); font-family:'IBM Plex Mono', monospace; font-size:12.5px; cursor:pointer;
+    letter-spacing:0.04em;
+  }
+  .export-btn:hover{ background: var(--ink); color:#f4ecd8; }
+
+  .multi-scroll{
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+  .multi-header{
+    display:flex; align-items:center; gap:8px;
+    padding: 0 40px 0 12px;
+    margin-bottom: 6px;
+    min-width: 830px;
+  }
+  .multi-header span{
+    font-size: 10.5px; letter-spacing:0.05em; text-transform:uppercase; color: var(--ink-soft); font-weight:600;
+  }
+  .multi-row{
+    background: #faf5e6;
+    border: 1px solid var(--paper-line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    min-width: 830px;
+  }
+  .multi-row select, .multi-row input{
+    padding: 7px 8px;
+    font-size: 13px;
+    border: 1px solid var(--paper-line);
+    border-radius: 5px;
+    background:#fffef9;
+    color: var(--ink);
+  }
+  .multi-row .row-type{ width: 108px; flex-shrink:0; }
+  .multi-row .row-date{ width: 138px; flex-shrink:0; }
+  .multi-row .row-amount{ width: 100px; flex-shrink:0; }
+  .multi-row .row-category{ width: 160px; flex-shrink:0; }
+  .multi-row .row-mode{ width: 130px; flex-shrink:0; }
+  .multi-row .row-note{ flex:1 1 140px; min-width:120px; }
+  .multi-row .row-remove{
+    flex-shrink:0;
+    background:none; border:none; color:#b3a988; cursor:pointer; font-size:15px;
+    width:20px; text-align:center;
+  }
+  .multi-row .row-remove:hover{ color: var(--debit); }
+
+  .loan-card{
+    background: #faf5e6;
+    border: 1px solid var(--paper-line);
+    border-left: 4px solid var(--gold);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .loan-card.closed{ border-left-color: var(--credit); opacity: 0.75; }
+  .loan-card-head{
+    display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;
+  }
+  .loan-card-head .name{ font-family:'Libre Baskerville', serif; font-size:15.5px; font-weight:700; }
+  .loan-card-head .badge{
+    font-family:'IBM Plex Mono', monospace; font-size: 10px; letter-spacing:0.05em;
+    padding: 3px 8px; border-radius: 10px; text-transform:uppercase;
+    background: #e9dfc4; color: var(--ink-soft);
+  }
+  .loan-card-head .badge.closed{ background: var(--credit); color:#fff; }
+  .loan-stats{
+    display:grid; grid-template-columns: repeat(2, 1fr); gap: 8px 16px;
+    font-family:'IBM Plex Mono', monospace; font-size: 12.5px; margin-bottom: 10px;
+  }
+  .loan-stats .stat .k{ color: var(--ink-soft); font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; }
+  .loan-stats .stat .v{ font-weight:600; margin-top:2px; }
+  .loan-card .bar-track{ margin-bottom: 6px; }
+  .loan-card-foot{
+    display:flex; justify-content:space-between; align-items:center; margin-top:8px;
+  }
+  .loan-card-foot .pct{ font-size:11px; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace; }
+  .loan-actions{ display:flex; gap:8px; }
+  .loan-actions button{
+    background:none; border:1px solid var(--paper-line); border-radius:5px; padding:4px 9px;
+    font-size:11px; cursor:pointer; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace;
+  }
+  .loan-actions button:hover{ border-color: var(--ink); color: var(--ink); }
+  .loan-actions .edit-loan-btn:hover{ border-color: var(--gold); color: var(--gold); }
+
+  .footnote{
+    text-align:center; margin-top: 16px; font-size: 11px; color: #8a7f5f; font-family:'IBM Plex Mono', monospace;
+  }
+
+  @media (max-width: 480px){
+    .form-grid{ grid-template-columns: 1fr; }
+    .stat-cards{ grid-template-columns: 1fr; }
+    .cover-title{ font-size: 24px; }
+  }
+  /* Auth gate & sync status */
+  #authGate{
+    position:fixed; inset:0; background:#e7ddc4; z-index:1000;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  #authGate .box{
+    background: var(--card); border:1px solid var(--paper-line); border-radius:12px;
+    box-shadow: var(--shadow); padding:32px 26px; max-width:360px; width:100%; text-align:center;
+  }
+  #authGate h1{
+    font-family:'Libre Baskerville', serif; font-size:22px; margin-bottom:10px; color:var(--ink);
+  }
+  #authGate p{ font-size:13.5px; color:var(--ink-soft); margin-bottom:20px; line-height:1.5; }
+  #googleSignInBtn{
+    display:inline-flex; align-items:center; gap:10px; justify-content:center;
+    background:#fff; border:1px solid #d0d0d0; border-radius:8px; padding:11px 18px;
+    font-family:'Inter', sans-serif; font-size:14px; font-weight:600; color:#3c4043;
+    cursor:pointer; width:100%;
+  }
+  #googleSignInBtn:hover{ background:#f7f7f7; }
+  #authGate .config-warning{
+    font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--debit);
+    background:#fdf0f0; border:1px solid #eecccc; border-radius:6px; padding:10px; margin-top:16px; text-align:left;
+  }
+  #syncStatus{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.04em;
+    color:#c9a95f; margin-top:8px; display:flex; align-items:center; gap:6px;
+  }
+  #syncStatus .dot{ width:6px; height:6px; border-radius:50%; background:#c9a95f; display:inline-block; }
+  #syncStatus.synced .dot{ background:#7fbf8f; }
+  #syncStatus.error .dot{ background:var(--debit); }
+  #signOutBtn{
+    background:none; border:none; color:#c9a95f; font-family:'IBM Plex Mono', monospace;
+    font-size:11px; cursor:pointer; text-decoration:underline; padding:0; margin-top:6px;
+  }
+</style>
+</head>
+<body>
+
+<div id="authGate">
+  <div class="box">
+    <h1>My Passbook</h1>
+    <p>Sign in with Google to sync your entries securely to your own account. Your data is only ever visible to you.</p>
+    <button id="googleSignInBtn">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.83.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.9v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.9A9 9 0 0 0 0 9c0 1.45.35 2.83.9 4.03l3.05-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .9 4.97l3.05 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Sign in with Google
+    </button>
+    <div id="authConfigWarning" class="config-warning" style="display:none;">
+      Firebase isn't configured yet. Paste your firebaseConfig into the FIREBASE_CONFIG object near the top of the script section of this file.
+    </div>
+  </div>
+</div>
+
+<div class="passbook">
+  <div class="cover">
+    <div class="cover-eyebrow">Personal Account · Lifetime Ledger</div>
+    <div class="cover-title">My Passbook</div>
+    <div class="cover-sub" id="coverDate">Opened · loading…</div>
+    <div class="cover-sub" id="coverLastUsed" style="margin-top:2px; opacity:0.8;">Last used · loading…</div>
+    <div class="cover-sub" id="coverAccount" style="margin-top:2px; opacity:0.8;"></div>
+    <div id="syncStatus"><span class="dot"></span><span id="syncStatusText">Not signed in</span></div>
+    <button id="signOutBtn" style="display:none;">Sign out</button>
+    <div class="cover-balance">
+      <span class="label">Current Balance</span>
+      <span class="amount" id="coverBalance">₹0</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="add">+ New Entry</div>
+    <div class="tab" data-tab="ledger">Ledger</div>
+    <div class="tab" data-tab="loans">Loans</div>
+    <div class="tab" data-tab="summary">Summary</div>
+  </div>
+
+  <!-- ADD ENTRY -->
+  <div class="page" id="page-add">
+    <h2 class="section-title">Post a Transaction</h2>
+
+    <div class="type-toggle" style="margin-bottom:16px;">
+      <div class="type-btn active" id="btnModeSingle">Single Entry</div>
+      <div class="type-btn" id="btnModeMulti">Multiple Entry</div>
+    </div>
+
+    <!-- SINGLE ENTRY -->
+    <div id="singleEntryForm">
+      <div class="form-grid">
+        <div class="type-toggle">
+          <div class="type-btn active income" id="btnIncome">↓ Income (Credit)</div>
+          <div class="type-btn expense" id="btnExpense">↑ Expense (Debit)</div>
+        </div>
+        <div>
+          <label>Date</label>
+          <input type="date" id="fDate">
+        </div>
+        <div>
+          <label>Amount (₹)</label>
+          <input type="number" id="fAmount" placeholder="0.00" min="0" step="0.01">
+        </div>
+        <div class="full">
+          <label>Category</label>
+          <select id="fCategory"></select>
+        </div>
+        <div>
+          <label>Payment Mode</label>
+          <select id="fMode"></select>
+        </div>
+        <div>
+          <label>Note (optional)</label>
+          <input type="text" id="fNote" placeholder="e.g. Grocery run at DMart">
+        </div>
+        <button class="submit-btn" id="submitBtn">POST ENTRY TO PASSBOOK</button>
+      </div>
+    </div>
+
+    <!-- MULTIPLE ENTRY -->
+    <div id="multiEntryForm" style="display:none;">
+      <div class="multi-scroll">
+        <div class="multi-header">
+          <span style="width:108px;">Type</span>
+          <span style="width:138px;">Date</span>
+          <span style="width:100px;">Amount</span>
+          <span style="width:160px;">Category</span>
+          <span style="width:130px;">Mode</span>
+          <span style="flex:1;">Note</span>
+        </div>
+        <div id="multiRows"></div>
+      </div>
+      <div class="export-row" style="margin-top:4px;">
+        <button class="export-btn" id="addRowBtn">+ Add Another Row</button>
+      </div>
+      <button class="submit-btn" id="submitMultiBtn" style="margin-top:12px;">POST ALL ENTRIES TO PASSBOOK</button>
+    </div>
+  </div>
+
+  <!-- LEDGER -->
+  <div class="page" id="page-ledger" style="display:none;">
+    <h2 class="section-title">Ledger — All Entries</h2>
+    <div class="filter-row">
+      <select id="filterMonth"></select>
+      <select id="filterType">
+        <option value="all">All types</option>
+        <option value="income">Income only</option>
+        <option value="expense">Expense only</option>
+      </select>
+    </div>
+    <div id="ledgerContainer"></div>
+  </div>
+
+  <!-- LOANS -->
+  <div class="page" id="page-loans" style="display:none;">
+    <h2 class="section-title">Add a Loan</h2>
+    <div class="form-grid">
+      <div class="full">
+        <label>Loan Name</label>
+        <input type="text" id="lName" placeholder="e.g. Home Loan — SBI">
+      </div>
+      <div>
+        <label>Principal / Sanctioned Amount (₹)</label>
+        <input type="number" id="lPrincipal" placeholder="0" min="0" step="0.01">
+      </div>
+      <div>
+        <label>Interest Rate (% p.a.) — optional</label>
+        <input type="number" id="lRate" placeholder="Leave blank if unknown" min="0" step="0.01">
+      </div>
+      <div>
+        <label>EMI Amount (₹/month)</label>
+        <input type="number" id="lEmi" placeholder="0" min="0" step="0.01">
+      </div>
+      <div>
+        <label>Total Tenure (EMIs)</label>
+        <input type="number" id="lTenure" placeholder="e.g. 60" min="1" step="1">
+      </div>
+      <div>
+        <label>EMIs Already Paid — for midway loans</label>
+        <input type="number" id="lPaid" placeholder="0" min="0" step="1" value="0">
+      </div>
+      <div class="full">
+        <label>First EMI Date — optional, for payoff estimate</label>
+        <input type="date" id="lStart">
+      </div>
+      <button class="submit-btn" id="addLoanBtn">ADD LOAN TO TRACKER</button>
+      <button class="export-btn" id="cancelLoanEditBtn" style="display:none; margin-top:8px;">Cancel Edit</button>
+    </div>
+
+    <h2 class="section-title" style="margin-top:22px;">Your Loans</h2>
+    <div id="loansContainer"></div>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="page last" id="page-summary" style="display:none;">
+    <h2 class="section-title">Monthly Summary</h2>
+    <div class="filter-row">
+      <select id="summaryMonth"></select>
+    </div>
+    <div class="stat-cards">
+      <div class="stat-card income"><div class="label">Income</div><div class="value" id="sumIncome">₹0</div></div>
+      <div class="stat-card expense"><div class="label">Expense</div><div class="value" id="sumExpense">₹0</div></div>
+      <div class="stat-card"><div class="label">Net Saved</div><div class="value" id="sumNet">₹0</div></div>
+    </div>
+    <div class="stat-cards" style="grid-template-columns: 1fr;">
+      <div class="stat-card expense"><div class="label">Total Loans Outstanding</div><div class="value" id="sumLoans">₹0</div></div>
+    </div>
+
+    <h2 class="section-title">Income vs Expense — Last 6 Months</h2>
+    <div style="position:relative; height:220px; margin-bottom:22px;">
+      <canvas id="trendChart"></canvas>
+    </div>
+
+    <h2 class="section-title">Spending by Category</h2>
+    <div id="categoryBars"></div>
+
+    <h2 class="section-title" style="margin-top:22px;">Spending by Payment Mode</h2>
+    <div id="modeBars"></div>
+
+    <div class="export-row" style="margin-top:18px;">
+      <button class="export-btn" id="shareSummary">📧 Share Summary (Email/App)</button>
+    </div>
+    <div class="export-row" style="margin-top:8px;">
+      <button class="export-btn" id="exportXlsx">⬇ Export to Excel (.xlsx)</button>
+      <button class="export-btn" id="exportCsv">⬇ Export to CSV</button>
+    </div>
+
+    <h2 class="section-title" style="margin-top:22px;">Backup &amp; Restore</h2>
+    <div class="export-row" style="margin-top:4px;">
+      <button class="export-btn" id="backupData">💾 Save Backup File</button>
+      <button class="export-btn" id="restoreData">📂 Restore From Backup</button>
+      <input type="file" id="restoreFileInput" accept="application/json" style="display:none;">
+    </div>
+    <div class="footnote" style="margin-top:8px;">Save a backup before clearing your browser's site data, switching phones, or reinstalling — then restore it here to get everything back, including your loans.</div>
+
+    <div class="footnote">Your data is stored privately in this browser on this device, and persists across visits — as long as you keep reopening this same file and don't clear your browser's site data.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ====== PASTE YOUR FIREBASE CONFIG HERE (from Firebase console > Project settings > Your apps) ======
+  const FIREBASE_CONFIG = {
+    apiKey: "PASTE_API_KEY",
+    authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
+    projectId: "PASTE_PROJECT_ID",
+    storageBucket: "PASTE_PROJECT_ID.appspot.com",
+    messagingSenderId: "PASTE_SENDER_ID",
+    appId: "PASTE_APP_ID"
+  };
+  // =======================================================================================================
+
+  const INCOME_CATS = ["Salary","Business","Investment Returns","Gift/Bonus","Other Income"];
+  const EXPENSE_CATS = ["Rent/Housing","Groceries","Utilities","Transport","Health","Education","Entertainment","Savings/Investment","EMI/Loan","Other Expense"];
+  const PAYMENT_MODES = ["UPI","Bank Transfer","Credit Card","Debit Card","Cash","Wallet","Other"];
+
+  let transactions = [];
+  let loans = [];
+  let currentType = "income";
+  let editingTxnId = null;
+  let editingLoanId = null;
+  const KEY = "passbook:transactions";       // offline mirror only
+  const LOANS_KEY = "passbook:loans";        // offline mirror only
+  const LAST_USED_KEY = "passbook:lastUsed";
+
+  const $ = id => document.getElementById(id);
+
+  let previousLastUsed = null;
+  let currentUser = null;
+  let db = null;
+  let docRef = null;
+  let unsubscribeSnapshot = null;
+  let suppressNextSnapshotWrite = false; // avoids feedback loop when we write locally then hear our own snapshot
+
+  const isConfigured = FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith("PASTE_");
+
+  function setSyncStatus(state, text){
+    const el = $("syncStatus");
+    el.classList.remove("synced","error");
+    if (state) el.classList.add(state);
+    $("syncStatusText").textContent = text;
+  }
+
+  function mirrorToLocalStorage(){
+    try{ localStorage.setItem(KEY, JSON.stringify(transactions)); }catch(e){}
+    try{ localStorage.setItem(LOANS_KEY, JSON.stringify(loans)); }catch(e){}
+  }
+
+  function loadLocalMirror(){
+    try{ const r = localStorage.getItem(KEY); transactions = r ? JSON.parse(r) : []; }catch(e){ transactions = []; }
+    try{ const r2 = localStorage.getItem(LOANS_KEY); loans = r2 ? JSON.parse(r2) : []; }catch(e){ loans = []; }
+  }
+
+  async function loadData(){
+    if (!isConfigured){
+      $("authConfigWarning").style.display = "block";
+      // Fall back to local-only mode so the app is still usable while you set up Firebase
+      loadLocalMirror();
+      try{
+        previousLastUsed = localStorage.getItem(LAST_USED_KEY);
+        localStorage.setItem(LAST_USED_KEY, new Date().toISOString());
+      }catch(e){ previousLastUsed = null; }
+      $("authGate").style.display = "none";
+      render();
+      return;
+    }
+
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+    try{ await db.enablePersistence({ synchronizeTabs: true }); }catch(e){ /* multiple tabs or unsupported browser — fine, just no offline cache */ }
+
+    firebase.auth().onAuthStateChanged(user => {
+      if (user){
+        currentUser = user;
+        $("authGate").style.display = "none";
+        $("signOutBtn").style.display = "inline";
+        $("coverAccount").textContent = user.email || user.displayName || "Signed in";
+        attachSync(user.uid);
+      } else {
+        currentUser = null;
+        if (unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+        $("authGate").style.display = "flex";
+        $("signOutBtn").style.display = "none";
+        $("coverAccount").textContent = "";
+        setSyncStatus(null, "Not signed in");
+      }
+    });
+
+    $("googleSignInBtn").addEventListener('click', async () => {
+      try{
+        if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseAuthentication){
+          // Running inside the Android app — use native Google Sign-In
+          const result = await window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle();
+          const idToken = result && result.credential && result.credential.idToken;
+          if (!idToken) throw new Error("No ID token returned from native sign-in");
+          const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
+          await firebase.auth().signInWithCredential(credential);
+        } else {
+          // Running in a regular browser — use the web popup flow
+          const provider = new firebase.auth.GoogleAuthProvider();
+          await firebase.auth().signInWithPopup(provider);
+        }
+      }catch(err){
+        console.error(err);
+        alert("Sign-in failed: " + (err.message || "please try again."));
+      }
+    });
+
+    $("signOutBtn").addEventListener('click', async () => {
+      try{
+        if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseAuthentication){
+          await window.Capacitor.Plugins.FirebaseAuthentication.signOut();
+        }
+      }catch(e){ /* ignore — still sign out of the web SDK below */ }
+      firebase.auth().signOut();
+    });
+  }
+
+  function attachSync(uid){
+    docRef = db.collection("passbooks").doc(uid);
+    setSyncStatus(null, "Syncing…");
+
+    // Record last-used before this session's writes land
+    docRef.get({ source: 'server' }).then(snap => {
+      const data = snap.exists ? snap.data() : null;
+      previousLastUsed = data && data.lastUsed ? data.lastUsed : null;
+    }).catch(() => { previousLastUsed = null; });
+
+    unsubscribeSnapshot = docRef.onSnapshot(snap => {
+      if (snap.exists){
+        const data = snap.data();
+        transactions = Array.isArray(data.transactions) ? data.transactions : [];
+        loans = Array.isArray(data.loans) ? data.loans : [];
+      } else {
+        // First time this account is used — seed from local mirror if present, else start empty
+        loadLocalMirror();
+      }
+      mirrorToLocalStorage();
+      setSyncStatus('synced', snap.metadata.fromCache ? "Synced (offline cache)" : "Synced");
+      render();
+    }, err => {
+      console.error(err);
+      setSyncStatus('error', "Sync error — using local copy");
+      loadLocalMirror();
+      render();
+    });
+  }
+
+  async function pushToCloud(){
+    mirrorToLocalStorage();
+    if (!isConfigured || !docRef) return;
+    try{
+      await docRef.set({
+        transactions, loans,
+        lastUsed: new Date().toISOString()
+      }, { merge: true });
+    }catch(e){
+      console.error("Cloud save failed", e);
+      setSyncStatus('error', "Save queued — will retry when online");
+    }
+  }
+
+  async function saveData(){ await pushToCloud(); }
+  async function saveLoans(){ await pushToCloud(); }
+
+
+  // Uses manually entered "EMIs paid" (accurate for midway loans) rather than
+  // inferring elapsed time from the start date. Interest rate is optional.
+  function computeLoanStatus(loan){
+    const tenure = loan.tenure;
+    const paid = Math.max(0, Math.min(loan.paidEmis || 0, tenure));
+    const hasRate = loan.rate !== null && loan.rate !== undefined && loan.rate !== "" && !isNaN(loan.rate);
+    const r = hasRate ? (loan.rate/100)/12 : 0;
+
+    let outstanding, interestPaid, principalPaid;
+
+    if (hasRate){
+      let bal = loan.principal;
+      interestPaid = 0;
+      for (let i=0; i<paid; i++){
+        if (bal <= 0) break;
+        const interest = bal * r;
+        let principalComp = loan.emi - interest;
+        if (principalComp > bal) principalComp = bal;
+        bal -= principalComp;
+        interestPaid += interest;
+      }
+      outstanding = Math.max(0, bal);
+      principalPaid = loan.principal - outstanding;
+    } else {
+      // No rate available — outstanding is simply what's left to pay: remaining EMIs × EMI amount
+      outstanding = Math.max(0, (tenure - paid) * loan.emi);
+      principalPaid = paid * loan.emi;
+      interestPaid = null; // unknown without a rate
+    }
+
+    const totalPaid = paid * loan.emi;
+    const remainingMonths = Math.max(0, tenure - paid);
+
+    let payoffDate;
+    if (loan.startDate){
+      payoffDate = new Date(loan.startDate);
+      payoffDate.setMonth(payoffDate.getMonth() + tenure - 1);
+    } else {
+      payoffDate = new Date();
+      payoffDate.setMonth(payoffDate.getMonth() + remainingMonths);
+    }
+
+    return {
+      outstanding,
+      paid,
+      remainingMonths,
+      totalPaid,
+      interestPaid,
+      principalPaid,
+      payoffDate,
+      percentPaid: Math.min(100, (paid/tenure)*100)
+    };
+  }
+
+  function fmt(n){
+    return "₹" + Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
+  }
+
+  function populateCategories(){
+    const sel = $("fCategory");
+    sel.innerHTML = "";
+    const cats = currentType === "income" ? INCOME_CATS : EXPENSE_CATS;
+    cats.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    });
+  }
+
+  function populatePaymentModes(selectEl){
+    selectEl.innerHTML = "";
+    PAYMENT_MODES.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m; opt.textContent = m;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function monthKey(dateStr){
+    return dateStr.slice(0,7); // YYYY-MM
+  }
+
+  function monthLabel(key){
+    const [y,m] = key.split("-");
+    const d = new Date(Number(y), Number(m)-1, 1);
+    return d.toLocaleDateString('en-IN', {month:'long', year:'numeric'});
+  }
+
+  function getAllMonths(){
+    const set = new Set(transactions.map(t => monthKey(t.date)));
+    return Array.from(set).sort().reverse();
+  }
+
+  function populateMonthFilters(){
+    const months = getAllMonths();
+    [$("filterMonth"), $("summaryMonth")].forEach(sel => {
+      const prevVal = sel.value;
+      sel.innerHTML = '<option value="all">All months</option>';
+      months.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m; opt.textContent = monthLabel(m);
+        sel.appendChild(opt);
+      });
+      if (months.includes(prevVal)) sel.value = prevVal;
+      else if (sel.id === "summaryMonth" && months.length) sel.value = months[0];
+    });
+  }
+
+  function formatLastUsed(iso){
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const datePart = d.toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'});
+    const timePart = d.toLocaleTimeString('en-IN', {hour:'numeric', minute:'2-digit'});
+    return datePart + ", " + timePart;
+  }
+
+  function renderCover(){
+    const balance = transactions.reduce((sum,t) => sum + (t.type==='income' ? t.amount : -t.amount), 0);
+    $("coverBalance").textContent = fmt(balance);
+
+    let baseLine;
+    if (transactions.length){
+      const dates = transactions.map(t=>t.date).sort();
+      const opened = new Date(dates[0]).toLocaleDateString('en-IN', {month:'short', year:'numeric'});
+      baseLine = "Opened · " + opened + " · " + transactions.length + " entries";
+    } else {
+      baseLine = "Opened · " + new Date().toLocaleDateString('en-IN', {month:'short', year:'numeric'});
+    }
+
+    const lastUsedText = formatLastUsed(previousLastUsed);
+    $("coverDate").textContent = baseLine;
+    $("coverLastUsed").textContent = lastUsedText ? ("Last used · " + lastUsedText) : "Last used · this is your first time here";
+  }
+
+  function renderLedger(){
+    const monthFilter = $("filterMonth").value;
+    const typeFilter = $("filterType").value;
+    let rows = [...transactions].sort((a,b)=> a.date.localeCompare(b.date));
+    let running = 0;
+    rows = rows.map(t => {
+      running += (t.type === 'income' ? t.amount : -t.amount);
+      return {...t, running};
+    });
+    rows.reverse();
+
+    if (monthFilter !== "all") rows = rows.filter(t => monthKey(t.date) === monthFilter);
+    if (typeFilter !== "all") rows = rows.filter(t => t.type === typeFilter);
+
+    const container = $("ledgerContainer");
+    if (!rows.length){
+      container.innerHTML = '<div class="empty-state">No entries yet — this page of the passbook is blank.</div>';
+      return;
+    }
+
+    let html = '<div style="overflow-x:auto;"><table class="ledger-table"><thead><tr><th>Date</th><th>Category</th><th>Mode</th><th>Note</th><th>Amount</th><th>Balance</th><th></th></tr></thead><tbody>';
+    rows.forEach(t => {
+      if (t.id === editingTxnId){
+        html += `<tr class="edit-row" data-id="${t.id}">
+          <td><input type="date" class="edit-date" value="${t.date}"></td>
+          <td>
+            <select class="edit-type" style="margin-bottom:4px;">
+              <option value="income" ${t.type==='income'?'selected':''}>Income</option>
+              <option value="expense" ${t.type==='expense'?'selected':''}>Expense</option>
+            </select>
+            <select class="edit-category"></select>
+          </td>
+          <td><select class="edit-mode"></select></td>
+          <td><input type="text" class="edit-note" value="${(t.note||'').replace(/"/g,'&quot;')}"></td>
+          <td><input type="number" class="edit-amount" value="${t.amount}" min="0" step="0.01" style="width:90px;"></td>
+          <td>—</td>
+          <td>
+            <button class="save-edit-btn" data-id="${t.id}" title="Save">✓</button>
+            <button class="cancel-edit-btn" data-id="${t.id}" title="Cancel">✕</button>
+          </td>
+        </tr>`;
+      } else {
+        const sign = t.type === 'income' ? '+' : '−';
+        const cls = t.type === 'income' ? 'amt-credit' : 'amt-debit';
+        html += `<tr>
+          <td>${t.date}</td>
+          <td>${t.category}</td>
+          <td>${t.mode || '—'}</td>
+          <td>${t.note || '—'}</td>
+          <td class="${cls}">${sign}${fmt(t.amount)}</td>
+          <td>${fmt(t.running)}</td>
+          <td>
+            <button class="edit-btn" data-id="${t.id}" title="Edit entry">✎</button>
+            <button class="del-btn" data-id="${t.id}" title="Delete entry">✕</button>
+          </td>
+        </tr>`;
+      }
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+
+    container.querySelectorAll('.del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        transactions = transactions.filter(t => String(t.id) !== id);
+        await saveData();
+        render();
+      });
+    });
+
+    container.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        editingTxnId = btn.getAttribute('data-id');
+        renderLedger();
+      });
+    });
+
+    container.querySelectorAll('.cancel-edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        editingTxnId = null;
+        renderLedger();
+      });
+    });
+
+    // Populate + wire the edit row's type/category/mode selects
+    const editRow = container.querySelector('.edit-row');
+    if (editRow){
+      const id = editRow.getAttribute('data-id');
+      const txn = transactions.find(t => String(t.id) === String(id));
+      const typeSel = editRow.querySelector('.edit-type');
+      const catSel = editRow.querySelector('.edit-category');
+      const modeSel = editRow.querySelector('.edit-mode');
+      populateSelectCategories(catSel, txn.type);
+      catSel.value = txn.category;
+      populatePaymentModes(modeSel);
+      if (txn.mode) modeSel.value = txn.mode;
+      typeSel.addEventListener('change', () => {
+        populateSelectCategories(catSel, typeSel.value);
+      });
+
+      editRow.querySelector('.save-edit-btn').addEventListener('click', async () => {
+        const date = editRow.querySelector('.edit-date').value;
+        const type = typeSel.value;
+        const category = catSel.value;
+        const mode = modeSel.value;
+        const note = editRow.querySelector('.edit-note').value.trim();
+        const amount = parseFloat(editRow.querySelector('.edit-amount').value);
+
+        if (!date){ alert("Please pick a date."); return; }
+        if (!amount || amount <= 0){ alert("Please enter a valid amount."); return; }
+
+        Object.assign(txn, { date, type, category, mode, note, amount });
+        editingTxnId = null;
+        await saveData();
+        render();
+      });
+    }
+  }
+
+  function renderSummary(){
+    const monthFilter = $("summaryMonth").value;
+    let rows = transactions;
+    if (monthFilter !== "all") rows = rows.filter(t => monthKey(t.date) === monthFilter);
+
+    const income = rows.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const expense = rows.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+    $("sumIncome").textContent = fmt(income);
+    $("sumExpense").textContent = fmt(expense);
+    $("sumNet").textContent = fmt(income - expense);
+
+    const totalLoanOutstanding = loans.reduce((s,l) => s + computeLoanStatus(l).outstanding, 0);
+    $("sumLoans").textContent = fmt(totalLoanOutstanding);
+
+    const catTotals = {};
+    rows.filter(t=>t.type==='expense').forEach(t => {
+      catTotals[t.category] = (catTotals[t.category]||0) + t.amount;
+    });
+    const maxVal = Math.max(1, ...Object.values(catTotals));
+    const sorted = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+
+    const barsContainer = $("categoryBars");
+    if (!sorted.length){
+      barsContainer.innerHTML = '<div class="empty-state" style="padding:16px;">No expenses recorded for this period.</div>';
+    } else {
+      barsContainer.innerHTML = sorted.map(([cat,val]) => `
+        <div class="bar-row">
+          <div class="bar-label"><span>${cat}</span><span>${fmt(val)}</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${(val/maxVal*100).toFixed(1)}%"></div></div>
+        </div>
+      `).join('');
+    }
+
+    const modeTotals = {};
+    rows.filter(t=>t.type==='expense').forEach(t => {
+      const m = t.mode || 'Not specified';
+      modeTotals[m] = (modeTotals[m]||0) + t.amount;
+    });
+    const maxModeVal = Math.max(1, ...Object.values(modeTotals));
+    const sortedModes = Object.entries(modeTotals).sort((a,b)=>b[1]-a[1]);
+    const modeBarsContainer = $("modeBars");
+    if (!sortedModes.length){
+      modeBarsContainer.innerHTML = '<div class="empty-state" style="padding:16px;">No expenses recorded for this period.</div>';
+    } else {
+      modeBarsContainer.innerHTML = sortedModes.map(([mode,val]) => `
+        <div class="bar-row">
+          <div class="bar-label"><span>${mode}</span><span>${fmt(val)}</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${(val/maxModeVal*100).toFixed(1)}%"></div></div>
+        </div>
+      `).join('');
+    }
+
+    renderTrendChart();
+  }
+
+  let trendChartInstance = null;
+  function renderTrendChart(){
+    const canvas = document.getElementById('trendChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    const allMonths = getAllMonths(); // newest first
+    const months = allMonths.slice(0, 6).reverse(); // oldest to newest, max 6
+    const labels = months.map(m => monthLabel(m).replace(' ', ' \u2019').replace(/\u2019(\d{2})\d{2}/, "'$1"));
+    const incomeData = months.map(m => transactions.filter(t=>t.type==='income' && monthKey(t.date)===m).reduce((s,t)=>s+t.amount,0));
+    const expenseData = months.map(m => transactions.filter(t=>t.type==='expense' && monthKey(t.date)===m).reduce((s,t)=>s+t.amount,0));
+
+    if (trendChartInstance) trendChartInstance.destroy();
+
+    if (!months.length){
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      return;
+    }
+
+    trendChartInstance = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Income', data: incomeData, backgroundColor: '#2f6f4e', borderRadius: 3 },
+          { label: 'Expense', data: expenseData, backgroundColor: '#b23a48', borderRadius: 3 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { family: 'Inter', size: 11 }, color: '#4a5568' } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+        },
+        scales: {
+          y: { beginAtZero: true, ticks: { font: { family: 'IBM Plex Mono', size: 10 } } },
+          x: { ticks: { font: { family: 'IBM Plex Mono', size: 10 } } }
+        }
+      }
+    });
+  }
+
+  function renderLoans(){
+    const container = $("loansContainer");
+    if (!loans.length){
+      container.innerHTML = '<div class="empty-state">No loans added yet.</div>';
+      return;
+    }
+    let html = '';
+    loans.forEach(loan => {
+      const s = computeLoanStatus(loan);
+      const isClosed = loan.closed || s.outstanding <= 1;
+      html += `
+        <div class="loan-card ${isClosed?'closed':''}">
+          <div class="loan-card-head">
+            <div class="name">${loan.name}</div>
+            <div class="badge ${isClosed?'closed':''}">${isClosed?'Closed':'Active'}</div>
+          </div>
+          <div class="loan-stats">
+            <div class="stat"><div class="k">Outstanding</div><div class="v">${fmt(s.outstanding)}</div></div>
+            <div class="stat"><div class="k">EMI</div><div class="v">${fmt(loan.emi)}/mo</div></div>
+            <div class="stat"><div class="k">EMIs Paid / Total</div><div class="v">${s.paid} / ${loan.tenure}</div></div>
+            <div class="stat"><div class="k">Rate</div><div class="v">${(loan.rate!==null && loan.rate!==""&&loan.rate!==undefined)?loan.rate+'% p.a.':'Not entered'}</div></div>
+            <div class="stat"><div class="k">Remaining EMIs</div><div class="v">${s.remainingMonths}</div></div>
+            <div class="stat"><div class="k">Interest Paid So Far</div><div class="v">${s.interestPaid===null?'—':fmt(s.interestPaid)}</div></div>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${s.percentPaid.toFixed(1)}%"></div></div>
+          <div class="loan-card-foot">
+            <span class="pct">${s.percentPaid.toFixed(1)}% repaid · Est. payoff ${s.payoffDate.toLocaleDateString('en-IN',{month:'short',year:'numeric'})}</span>
+            <div class="loan-actions">
+              <button class="edit-loan-btn" data-id="${loan.id}">Edit</button>
+              <button class="del-loan-btn" data-id="${loan.id}">Delete</button>
+            </div>
+          </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+    container.querySelectorAll('.del-loan-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm("Remove this loan from your tracker?")) return;
+        loans = loans.filter(l => String(l.id) !== btn.getAttribute('data-id'));
+        await saveLoans();
+        renderLoans();
+      });
+    });
+    container.querySelectorAll('.edit-loan-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const loan = loans.find(l => String(l.id) === btn.getAttribute('data-id'));
+        if (!loan) return;
+        editingLoanId = loan.id;
+        $("lName").value = loan.name;
+        $("lPrincipal").value = loan.principal;
+        $("lRate").value = (loan.rate===null||loan.rate===undefined) ? "" : loan.rate;
+        $("lEmi").value = loan.emi;
+        $("lTenure").value = loan.tenure;
+        $("lPaid").value = loan.paidEmis || 0;
+        $("lStart").value = loan.startDate || "";
+        $("addLoanBtn").textContent = "UPDATE LOAN";
+        $("cancelLoanEditBtn").style.display = "block";
+        $("lName").scrollIntoView({behavior:"smooth", block:"start"});
+      });
+    });
+  }
+
+  let multiRowCounter = 0;
+
+  function categoriesFor(type){
+    return type === "income" ? INCOME_CATS : EXPENSE_CATS;
+  }
+
+  function populateSelectCategories(selectEl, type){
+    selectEl.innerHTML = "";
+    categoriesFor(type).forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c; opt.textContent = c;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function addMultiRow(){
+    const id = "row" + (++multiRowCounter);
+    const today = new Date().toISOString().slice(0,10);
+    const row = document.createElement("div");
+    row.className = "multi-row";
+    row.dataset.rowId = id;
+    row.innerHTML = `
+      <select class="row-type">
+        <option value="income">Income</option>
+        <option value="expense" selected>Expense</option>
+      </select>
+      <input type="date" class="row-date" value="${today}">
+      <input type="number" class="row-amount" placeholder="Amount" min="0" step="0.01">
+      <select class="row-category"></select>
+      <select class="row-mode"></select>
+      <input type="text" class="row-note" placeholder="Note (optional)">
+      <button class="row-remove" title="Remove row">✕</button>`;
+    $("multiRows").appendChild(row);
+    populateSelectCategories(row.querySelector('.row-category'), 'expense');
+    populatePaymentModes(row.querySelector('.row-mode'));
+
+    row.querySelector('.row-remove').addEventListener('click', () => row.remove());
+    row.querySelector('.row-type').addEventListener('change', (e) => {
+      populateSelectCategories(row.querySelector('.row-category'), e.target.value);
+    });
+  }
+
+  function render(){
+    renderCover();
+    populateMonthFilters();
+    renderLedger();
+    renderSummary();
+    renderLoans();
+  }
+
+  // Tabs
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      ['add','ledger','loans','summary'].forEach(p => {
+        $("page-"+p).style.display = (p === tab.dataset.tab) ? 'block' : 'none';
+      });
+    });
+  });
+
+  // Type toggle
+  $("btnIncome").addEventListener('click', () => {
+    currentType = "income";
+    $("btnIncome").classList.add('active');
+    $("btnExpense").classList.remove('active');
+    populateCategories();
+  });
+  $("btnExpense").addEventListener('click', () => {
+    currentType = "expense";
+    $("btnExpense").classList.add('active');
+    $("btnIncome").classList.remove('active');
+    populateCategories();
+  });
+
+  // Submit
+  $("submitBtn").addEventListener('click', async () => {
+    const date = $("fDate").value;
+    const amount = parseFloat($("fAmount").value);
+    const category = $("fCategory").value;
+    const mode = $("fMode").value;
+    const note = $("fNote").value.trim();
+
+    if (!date){ alert("Please pick a date."); return; }
+    if (!amount || amount <= 0){ alert("Please enter a valid amount."); return; }
+
+    transactions.push({
+      id: Date.now() + Math.random().toString(36).slice(2,7),
+      date, type: currentType, amount, category, mode, note
+    });
+    await saveData();
+
+    $("fAmount").value = "";
+    $("fNote").value = "";
+    render();
+  });
+
+  // Entry mode toggle
+  $("btnModeSingle").addEventListener('click', () => {
+    $("btnModeSingle").classList.add('active');
+    $("btnModeMulti").classList.remove('active');
+    $("singleEntryForm").style.display = 'block';
+    $("multiEntryForm").style.display = 'none';
+  });
+  $("btnModeMulti").addEventListener('click', () => {
+    $("btnModeMulti").classList.add('active');
+    $("btnModeSingle").classList.remove('active');
+    $("singleEntryForm").style.display = 'none';
+    $("multiEntryForm").style.display = 'block';
+    if (!$("multiRows").children.length){
+      addMultiRow(); addMultiRow();
+    }
+  });
+  $("addRowBtn").addEventListener('click', addMultiRow);
+
+  $("submitMultiBtn").addEventListener('click', async () => {
+    const rows = Array.from($("multiRows").querySelectorAll('.multi-row'));
+    if (!rows.length){ alert("Add at least one row first."); return; }
+
+    const newEntries = [];
+    const skipped = [];
+    rows.forEach((row, idx) => {
+      const date = row.querySelector('.row-date').value;
+      const type = row.querySelector('.row-type').value;
+      const amount = parseFloat(row.querySelector('.row-amount').value);
+      const category = row.querySelector('.row-category').value;
+      const mode = row.querySelector('.row-mode').value;
+      const note = row.querySelector('.row-note').value.trim();
+
+      if (!date || !amount || amount <= 0){
+        skipped.push(idx + 1);
+        return;
+      }
+      newEntries.push({
+        id: Date.now() + Math.random().toString(36).slice(2,7) + idx,
+        date, type, amount, category, mode, note
+      });
+    });
+
+    if (!newEntries.length){
+      alert("None of the rows had a valid date and amount. Nothing was posted.");
+      return;
+    }
+
+    transactions.push(...newEntries);
+    await saveData();
+
+    $("multiRows").innerHTML = "";
+    addMultiRow(); addMultiRow();
+
+    render();
+
+    if (skipped.length){
+      alert(`Posted ${newEntries.length} entries. Skipped row(s) ${skipped.join(', ')} — missing date or amount.`);
+    }
+  });
+
+  // Add or update loan
+  $("addLoanBtn").addEventListener('click', async () => {
+    const name = $("lName").value.trim();
+    const principal = parseFloat($("lPrincipal").value);
+    const rateRaw = $("lRate").value;
+    const rate = rateRaw === "" ? null : parseFloat(rateRaw);
+    const emi = parseFloat($("lEmi").value);
+    const tenure = parseInt($("lTenure").value, 10);
+    const paidEmis = parseInt($("lPaid").value, 10) || 0;
+    const startDate = $("lStart").value || null;
+
+    if (!name){ alert("Please name this loan."); return; }
+    if (!principal || principal <= 0){ alert("Please enter a valid principal amount."); return; }
+    if (rate !== null && (isNaN(rate) || rate < 0)){ alert("Please enter a valid interest rate, or leave it blank."); return; }
+    if (!emi || emi <= 0){ alert("Please enter a valid EMI amount."); return; }
+    if (!tenure || tenure <= 0){ alert("Please enter a valid total tenure (number of EMIs)."); return; }
+    if (paidEmis > tenure){ alert("EMIs paid can't exceed total tenure."); return; }
+
+    if (editingLoanId){
+      const loan = loans.find(l => l.id === editingLoanId);
+      if (loan) Object.assign(loan, { name, principal, rate, emi, tenure, paidEmis, startDate });
+      editingLoanId = null;
+      $("addLoanBtn").textContent = "ADD LOAN TO TRACKER";
+      $("cancelLoanEditBtn").style.display = "none";
+    } else {
+      loans.push({
+        id: Date.now() + Math.random().toString(36).slice(2,7),
+        name, principal, rate, emi, tenure, paidEmis, startDate, closed:false
+      });
+    }
+    await saveLoans();
+
+    $("lName").value=""; $("lPrincipal").value=""; $("lRate").value="";
+    $("lEmi").value=""; $("lTenure").value=""; $("lPaid").value="0"; $("lStart").value="";
+    renderLoans();
+  });
+
+  $("cancelLoanEditBtn").addEventListener('click', () => {
+    editingLoanId = null;
+    $("addLoanBtn").textContent = "ADD LOAN TO TRACKER";
+    $("cancelLoanEditBtn").style.display = "none";
+    $("lName").value=""; $("lPrincipal").value=""; $("lRate").value="";
+    $("lEmi").value=""; $("lTenure").value=""; $("lPaid").value="0"; $("lStart").value="";
+  });
+
+  // Filters
+  $("filterMonth").addEventListener('change', renderLedger);
+  $("filterType").addEventListener('change', renderLedger);
+  $("summaryMonth").addEventListener('change', renderSummary);
+
+  // Export
+  function buildWorkbook(){
+    if (!transactions.length && !loans.length) return null;
+    const sorted = [...transactions].sort((a,b)=>a.date.localeCompare(b.date));
+    let running = 0;
+    const data = sorted.map(t => {
+      running += (t.type==='income' ? t.amount : -t.amount);
+      return {
+        Date: t.date,
+        Type: t.type === 'income' ? 'Income' : 'Expense',
+        Category: t.category,
+        Mode: t.mode || '',
+        Note: t.note || '',
+        Amount: t.amount,
+        "Running Balance": running
+      };
+    });
+    const wb = XLSX.utils.book_new();
+
+    if (data.length){
+      const ws = XLSX.utils.json_to_sheet(data);
+      ws['!cols'] = [{wch:12},{wch:10},{wch:20},{wch:14},{wch:30},{wch:12},{wch:16}];
+      XLSX.utils.book_append_sheet(wb, ws, "Passbook");
+    }
+
+    if (loans.length){
+      const loanData = loans.map(l => {
+        const s = computeLoanStatus(l);
+        return {
+          "Loan Name": l.name,
+          "Principal": l.principal,
+          "Interest Rate (%)": (l.rate===null||l.rate===undefined) ? "Not entered" : l.rate,
+          "EMI": l.emi,
+          "Total Tenure (EMIs)": l.tenure,
+          "EMIs Paid": s.paid,
+          "EMIs Remaining": s.remainingMonths,
+          "Start Date": l.startDate || "Not entered",
+          "Outstanding Balance": Math.round(s.outstanding),
+          "Interest Paid So Far": s.interestPaid===null ? "Unknown (no rate entered)" : Math.round(s.interestPaid),
+          "% Repaid": s.percentPaid.toFixed(1),
+          "Est. Payoff Date": s.payoffDate.toLocaleDateString('en-IN',{month:'short',year:'numeric'})
+        };
+      });
+      const ws2 = XLSX.utils.json_to_sheet(loanData);
+      ws2['!cols'] = [{wch:22},{wch:12},{wch:14},{wch:10},{wch:14},{wch:10},{wch:12},{wch:12},{wch:16},{wch:20},{wch:10},{wch:14}];
+      XLSX.utils.book_append_sheet(wb, ws2, "Loans");
+    }
+    return wb;
+  }
+
+  function buildSummaryText(){
+    const monthFilter = $("summaryMonth").value;
+    const monthLabelText = monthFilter === "all" ? "All time" : monthLabel(monthFilter);
+    let rows = transactions;
+    if (monthFilter !== "all") rows = rows.filter(t => monthKey(t.date) === monthFilter);
+
+    const income = rows.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const expense = rows.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+    const net = income - expense;
+
+    const catTotals = {};
+    rows.filter(t=>t.type==='expense').forEach(t => {
+      catTotals[t.category] = (catTotals[t.category]||0) + t.amount;
+    });
+    const topCats = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const totalLoanOutstanding = loans.reduce((s,l) => s + computeLoanStatus(l).outstanding, 0);
+
+    let text = `My Passbook — Summary (${monthLabelText})\n\n`;
+    text += `Income: ${fmt(income)}\n`;
+    text += `Expense: ${fmt(expense)}\n`;
+    text += `Net Saved: ${fmt(net)}\n`;
+    if (loans.length) text += `Total Loans Outstanding: ${fmt(totalLoanOutstanding)}\n`;
+    if (topCats.length){
+      text += `\nTop Expense Categories:\n`;
+      topCats.forEach(([cat,val]) => { text += `- ${cat}: ${fmt(val)}\n`; });
+    }
+    text += `\nFull details in the attached Excel file.`;
+    return { text, monthLabelText };
+  }
+
+  $("exportCsv").addEventListener('click', () => {
+    if (!transactions.length){ alert("No entries to export yet."); return; }
+    const rows = [["Date","Type","Category","Mode","Note","Amount"]];
+    [...transactions].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
+      rows.push([t.date, t.type, t.category, t.mode||"", t.note||"", t.amount]);
+    });
+    const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'my-passbook.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  $("exportXlsx").addEventListener('click', () => {
+    const wb = buildWorkbook();
+    if (!wb){ alert("No entries to export yet."); return; }
+    XLSX.writeFile(wb, "my-passbook.xlsx");
+  });
+
+  $("shareSummary").addEventListener('click', async () => {
+    const wb = buildWorkbook();
+    if (!wb){ alert("No entries to share yet."); return; }
+    const { text, monthLabelText } = buildSummaryText();
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const file = new File([blob], 'my-passbook.xlsx', { type: blob.type });
+
+    // Try native share sheet (works on most mobile browsers) — lets you pick Gmail/Mail directly
+    if (navigator.canShare && navigator.canShare({ files: [file] })){
+      try{
+        await navigator.share({
+          files: [file],
+          title: 'My Passbook Summary — ' + monthLabelText,
+          text: text
+        });
+        return;
+      }catch(err){
+        if (err && err.name === 'AbortError') return; // user cancelled, do nothing
+        // fall through to fallback below on other errors
+      }
+    }
+
+    // Fallback (mainly desktop browsers without file-sharing support):
+    // download the file, then open a pre-filled email with the summary text.
+    XLSX.writeFile(wb, "my-passbook.xlsx");
+    const subject = encodeURIComponent('My Passbook Summary — ' + monthLabelText);
+    const body = encodeURIComponent(text + '\n\n(The Excel file was just downloaded — please attach it to this email before sending.)');
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  });
+
+  // Backup & Restore (full JSON snapshot — survives clearing browser site data)
+  $("backupData").addEventListener('click', () => {
+    const snapshot = {
+      app: "my-passbook",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      transactions,
+      loans
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url; a.download = `my-passbook-backup-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  $("restoreData").addEventListener('click', () => {
+    $("restoreFileInput").value = "";
+    $("restoreFileInput").click();
+  });
+
+  $("restoreFileInput").addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try{
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data.transactions)){
+        alert("This doesn't look like a valid passbook backup file.");
+        return;
+      }
+      const incomingCount = data.transactions.length;
+      const incomingLoans = Array.isArray(data.loans) ? data.loans.length : 0;
+      const replace = confirm(
+        `This backup has ${incomingCount} entries and ${incomingLoans} loan(s).\n\n` +
+        `Press OK to REPLACE your current data with this backup.\n` +
+        `Press Cancel to MERGE it into your current data instead.`
+      );
+
+      if (replace){
+        transactions = data.transactions;
+        loans = Array.isArray(data.loans) ? data.loans : [];
+      } else {
+        const existingIds = new Set(transactions.map(t => t.id));
+        data.transactions.forEach(t => { if (!existingIds.has(t.id)) transactions.push(t); });
+        if (Array.isArray(data.loans)){
+          const existingLoanIds = new Set(loans.map(l => l.id));
+          data.loans.forEach(l => { if (!existingLoanIds.has(l.id)) loans.push(l); });
+        }
+      }
+
+      await saveData();
+      await saveLoans();
+      render();
+      alert("Backup restored successfully.");
+    }catch(err){
+      console.error(err);
+      alert("Couldn't read that file — make sure it's a backup exported from this passbook.");
+    }
+  });
+
+  // Init
+  $("fDate").value = new Date().toISOString().slice(0,10);
+  populateCategories();
+  populatePaymentModes($("fMode"));
+  loadData();
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed', err));
+  });
+}
+</script>
+</body>
+</html>
