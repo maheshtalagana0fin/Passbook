@@ -83,16 +83,16 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
-      - name: Show Debug SHA-1
-        working-directory: android
-        run: ./gradlew signingReport
-
       - name: Sync web application
         run: npx cap sync android
 
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug
+
+      - name: Show Debug SHA-1
+        working-directory: android
+        run: ./gradlew signingReport
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
