@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -86,13 +87,17 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > passbook-release.keystore
+
           test -s passbook-release.keystore
+
           echo "Permanent keystore restored successfully"
 
       - name: Add Firebase Android configuration
         run: |
           test -f google-services.json
+
           cp google-services.json android/app/google-services.json
+
           echo "Firebase configuration copied successfully"
 
       - name: Configure Firebase Authentication Google provider
@@ -119,6 +124,7 @@ jobs:
         working-directory: android
         run: |
           sed -i '/plugins {/a\    id "com.google.gms.google-services" version "4.4.3" apply false' build.gradle
+
           sed -i '/plugins {/a\    id "com.google.gms.google-services"' app/build.gradle
 
       - name: Configure APK signing
@@ -127,40 +133,30 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-
-          p = Path("app/build.gradle")
-          text = p.read_text()
-
-          signing = f'''
-              signingConfigs {{
-                  release {{
+          cat > app/signing.gradle <<'EOF'
+          android {
+              signingConfigs {
+                  passbook {
                       storeFile file("../passbook-release.keystore")
-                      storePassword "{os.environ["KEYSTORE_PASSWORD"]}"
+                      storePassword System.getenv("KEYSTORE_PASSWORD")
                       keyAlias "passbook"
-                      keyPassword "{os.environ["KEY_PASSWORD"]}"
-                  }}
-              }}
-          '''
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
+              }
 
-          if "signingConfigs {" not in text:
-              text = text.replace(
-                  "android {",
-                  "android {" + signing,
-                  1
-              )
+              buildTypes {
+                  debug {
+                      signingConfig signingConfigs.passbook
+                  }
+              }
+          }
+          EOF
 
-          text = text.replace(
-              "debug {",
-              """debug {
-                      signingConfig signingConfigs.release""",
-              1
-          )
+          echo "" >> app/build.gradle
+          echo 'apply from: "signing.gradle"' >> app/build.gradle
 
-          p.write_text(text)
-          PY
+          echo "===== Signing configuration ====="
+          cat app/signing.gradle
 
       - name: Sync web application and native plugins
         run: npx cap sync android
@@ -171,6 +167,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           echo "===== Permanent signing SHA-1 ====="
+
           keytool -list -v \
             -keystore passbook-release.keystore \
             -alias passbook \
@@ -191,11 +188,16 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleDebug
 
       - name: Verify APK signing
         working-directory: android
-        run: ./gradlew signingReport
+        run: |
+          echo "===== APK signing report ====="
+          ./gradlew signingReport
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
