@@ -85,7 +85,7 @@ jobs:
 
       - name: Configure Firebase Google Sign-In
         run: |
-          echo "rgcfaIncludeGoogle = true" >> android/variables.gradle
+          printf '\nrgcfaIncludeGoogle = true\n' >> android/variables.gradle
 
       - name: Show Debug SHA-1
         working-directory: android
