@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -81,22 +82,22 @@ jobs:
         run: npx cap add android
 
       - name: Generate permanent signing keystore
-      working-directory: android
-      run: |
-        keytool -genkeypair \
-          -keystore passbook-release.keystore \
-          -alias passbook \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000 \
-          -storepass navalarch0253 \
-          -keypass navalarch0253 \
-          -dname "CN=Mahesh, OU=Passbook, O=Personal, L=Mumbai, ST=Maharashtra, C=IN"
+        working-directory: android
+        run: |
+          keytool -genkeypair \
+            -keystore passbook-release.keystore \
+            -alias passbook \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass navalarch0253 \
+            -keypass navalarch0253 \
+            -dname "CN=Mahesh, OU=Passbook, O=Personal, L=Mumbai, ST=Maharashtra, C=IN"
 
-        keytool -list -v \
-          -keystore passbook-release.keystore \
-          -alias passbook \
-          -storepass navalarch0253
+          keytool -list -v \
+            -keystore passbook-release.keystore \
+            -alias passbook \
+            -storepass navalarch0253
 
       - name: Add Firebase Android configuration
         run: |
@@ -157,7 +158,15 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug
 
-      - name: Show Debug SHA-1
+      - name: Show permanent keystore SHA-1
+        working-directory: android
+        run: |
+          keytool -list -v \
+            -keystore passbook-release.keystore \
+            -alias passbook \
+            -storepass navalarch0253 | grep SHA1
+
+      - name: Show APK signing SHA-1
         working-directory: android
         run: ./gradlew signingReport
 
