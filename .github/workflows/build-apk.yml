@@ -68,7 +68,13 @@ jobs:
             appId: 'com.maheshtalagana.passbook',
             appName: 'My Passbook',
             webDir: 'www',
-            bundledWebRuntime: false
+            bundledWebRuntime: false,
+            plugins: {
+              FirebaseAuthentication: {
+                skipNativeAuth: false,
+                providers: ['google.com']
+              }
+            }
           };
 
           export default config;
@@ -76,6 +82,14 @@ jobs:
 
       - name: Add Android platform
         run: npx cap add android
+
+      - name: Configure Firebase Google Sign-In
+        run: |
+          echo "rgcfaIncludeGoogle = true" >> android/variables.gradle
+
+      - name: Show Debug SHA-1
+        working-directory: android
+        run: ./gradlew signingReport
 
       - name: Sync web application
         run: npx cap sync android
