@@ -387,6 +387,9 @@
     background:none; border:none; color:#c9a95f; font-family:'IBM Plex Mono', monospace;
     font-size:11px; cursor:pointer; text-decoration:underline; padding:0; margin-top:6px;
   }
+
+  .sync-action-btn{font:inherit;font-size:11px;padding:6px 10px;border:1px solid var(--paper-line);border-radius:7px;background:#fff;cursor:pointer;color:var(--ink);}
+  .sync-action-btn:disabled{opacity:.6;cursor:wait;}
 </style>
 </head>
 <body>
@@ -412,7 +415,9 @@
     <div class="cover-sub" id="coverDate">Opened · loading…</div>
     <div class="cover-sub" id="coverLastUsed" style="margin-top:2px; opacity:0.8;">Last used · loading…</div>
     <div class="cover-sub" id="coverAccount" style="margin-top:2px; opacity:0.8;"></div>
-    <div id="syncStatus"><span class="dot"></span><span id="syncStatusText">Not signed in</span></div>
+    <div id="syncStatus"><span class="dot"></span><span id="syncStatusText">Not signed in</span>
+      <button class="sync-action-btn" id="syncNowBtn" type="button">🔄 Sync Now</button>
+      <button class="sync-action-btn" id="refreshAppBtn" type="button">⟳ Refresh App</button></div>
     <button id="signOutBtn" style="display:none;">Sign out</button>
     <div class="cover-balance">
       <span class="label">Current Balance</span>
@@ -696,9 +701,25 @@
       return;
     }
 
-    firebase.initializeApp(FIREBASE_CONFIG);
-    db = firebase.firestore();
-    try{ await db.enablePersistence({ synchronizeTabs: true }); }catch(e){ /* multiple tabs or unsupported browser — fine, just no offline cache */ }
+    try{
+      firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.firestore();
+    }catch(err){
+      console.error("Firebase initialization failed", err);
+      setSyncStatus("error", "Firebase initialization failed");
+      $("authConfigWarning").textContent = "Firebase initialization failed: " + (err.message || "Unknown error");
+      $("authConfigWarning").style.display = "block";
+      return;
+    }
+
+    // Attach sign-in handling immediately. Do not wait for Firestore persistence setup.
+    try{ await db.enablePersistence({ synchronizeTabs: true }); }catch(e){ /* multiple tabs or unsupported browser — fine */ }
+
+    firebase.auth().getRedirectResult().catch(err => {
+      console.error("Google redirect sign-in failed", err);
+      setSyncStatus("error", "Sign-in failed");
+      alert("Google sign-in failed: " + (err.message || err.code || "please try again."));
+    });
 
     firebase.auth().onAuthStateChanged(user => {
       if (user){
@@ -718,22 +739,33 @@
     });
 
     $("googleSignInBtn").addEventListener('click', async () => {
+      const btn = $("googleSignInBtn");
       try{
+        btn.disabled = true;
+        btn.textContent = "Signing in…";
         if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseAuthentication){
-          // Running inside the Android app — use native Google Sign-In
           const result = await window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle();
           const idToken = result && result.credential && result.credential.idToken;
           if (!idToken) throw new Error("No ID token returned from native sign-in");
           const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
           await firebase.auth().signInWithCredential(credential);
         } else {
-          // Running in a regular browser — use the web popup flow
           const provider = new firebase.auth.GoogleAuthProvider();
-          await firebase.auth().signInWithPopup(provider);
+          provider.setCustomParameters({ prompt: "select_account" });
+          const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+          const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+          if (isStandalone || isMobile){
+            await firebase.auth().signInWithRedirect(provider);
+          } else {
+            await firebase.auth().signInWithPopup(provider);
+          }
         }
       }catch(err){
-        console.error(err);
-        alert("Sign-in failed: " + (err.message || "please try again."));
+        console.error("Sign-in failed", err);
+        btn.disabled = false;
+        btn.textContent = "Continue with Google";
+        setSyncStatus("error", "Sign-in failed");
+        alert("Sign-in failed: " + (err.message || err.code || "please try again."));
       }
     });
 
@@ -1207,7 +1239,7 @@
       editingCardId=c.id; $("cName").value=c.name||""; $("cType").value=c.type||"credit"; $("cBank").value=c.bank||""; $("cLast4").value=c.last4||"";
       $("cBillingDay").value=c.billingDay||""; $("cDueDay").value=c.dueDay||"";
       $("addCardBtn").textContent="UPDATE CARD"; $("cancelCardEditBtn").style.display="block"; updateCardTypeUI();
-    });
+    }));
   }
 
   function updateCardTypeUI(){
@@ -1318,6 +1350,39 @@
       populateSelectCategories(row.querySelector('.row-category'), e.target.value);
     });
   }
+
+  async function syncNow(){
+    const btn = $("syncNowBtn");
+    if (!currentUser || !docRef){ alert("Please sign in first."); return; }
+    try{
+      btn.disabled = true; btn.textContent = "Syncing…";
+      setSyncStatus(null, "Syncing…");
+      const snap = await docRef.get({source:"server"});
+      if (snap.exists){
+        const data=snap.data();
+        transactions=Array.isArray(data.transactions)?data.transactions:[];
+        loans=Array.isArray(data.loans)?data.loans:[];
+        cards=Array.isArray(data.cards)?data.cards:[];
+        mirrorToLocalStorage(); render();
+      }
+      setSyncStatus("synced","Synced");
+    }catch(err){ console.error(err); setSyncStatus("error","Sync failed"); alert("Sync failed: "+(err.message||err.code||"please try again.")); }
+    finally{ btn.disabled=false; btn.textContent="🔄 Sync Now"; }
+  }
+
+  async function refreshApp(){
+    const btn=$("refreshAppBtn"); btn.disabled=true; btn.textContent="Refreshing…";
+    try{
+      if ("serviceWorker" in navigator){
+        const regs=await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r=>r.update()));
+      }
+      location.reload();
+    }catch(err){ console.warn(err); location.reload(); }
+  }
+
+  $("syncNowBtn").addEventListener("click", syncNow);
+  $("refreshAppBtn").addEventListener("click", refreshApp);
 
   function render(){
     renderCover();
