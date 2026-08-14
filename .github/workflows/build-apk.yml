@@ -9,23 +9,42 @@ jobs:
 
     steps:
 
+      # ---------------------------------------------------------
+      # 1. Checkout repository
+      # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v6
 
+
+      # ---------------------------------------------------------
+      # 2. Setup Node.js
+      # ---------------------------------------------------------
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 22
 
+
+      # ---------------------------------------------------------
+      # 3. Setup Java
+      # ---------------------------------------------------------
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
+
+      # ---------------------------------------------------------
+      # 4. Setup Android SDK
+      # ---------------------------------------------------------
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+
+      # ---------------------------------------------------------
+      # 5. Create Capacitor project
+      # ---------------------------------------------------------
       - name: Create Capacitor project
         run: |
           cat > package.json <<'EOF'
@@ -48,15 +67,32 @@ jobs:
 
           npm install
 
+
+      # ---------------------------------------------------------
+      # 6. Create local fallback web directory
+      #
+      # The APK contains these files as a fallback, but the app
+      # itself loads the LIVE version from GitHub Pages.
+      # ---------------------------------------------------------
       - name: Create web directory
         run: |
           mkdir -p www
+
           cp index.html www/
           cp manifest.json www/
           cp sw.js www/
           cp icon-192.png www/
           cp icon-512.png www/
 
+
+      # ---------------------------------------------------------
+      # 7. Create Capacitor configuration
+      #
+      # IMPORTANT:
+      # This makes the APK load the live GitHub Pages website.
+      # Future changes to index.html on GitHub will therefore
+      # appear in the installed app without rebuilding the APK.
+      # ---------------------------------------------------------
       - name: Create Capacitor configuration
         run: |
           cat > capacitor.config.ts <<'EOF'
@@ -67,6 +103,13 @@ jobs:
             appName: 'My Passbook',
             webDir: 'www',
             bundledWebRuntime: false,
+
+            server: {
+              url: 'https://maheshtalagana0fin.github.io/Passbook/',
+              cleartext: false,
+              androidScheme: 'https'
+            },
+
             plugins: {
               FirebaseAuthentication: {
                 skipNativeAuth: false,
@@ -78,9 +121,17 @@ jobs:
           export default config;
           EOF
 
+
+      # ---------------------------------------------------------
+      # 8. Add Android platform
+      # ---------------------------------------------------------
       - name: Add Android platform
         run: npx cap add android
 
+
+      # ---------------------------------------------------------
+      # 9. Restore permanent signing keystore
+      # ---------------------------------------------------------
       - name: Restore permanent signing keystore
         working-directory: android
         env:
@@ -92,6 +143,10 @@ jobs:
 
           echo "Permanent keystore restored successfully"
 
+
+      # ---------------------------------------------------------
+      # 10. Add Firebase Android configuration
+      # ---------------------------------------------------------
       - name: Add Firebase Android configuration
         run: |
           test -f google-services.json
@@ -100,6 +155,10 @@ jobs:
 
           echo "Firebase configuration copied successfully"
 
+
+      # ---------------------------------------------------------
+      # 11. Configure Firebase Authentication Google provider
+      # ---------------------------------------------------------
       - name: Configure Firebase Authentication Google provider
         run: |
           python3 - <<'PY'
@@ -120,6 +179,10 @@ jobs:
           p.write_text(text)
           PY
 
+
+      # ---------------------------------------------------------
+      # 12. Configure Google Services plugin
+      # ---------------------------------------------------------
       - name: Configure Google Services plugin
         working-directory: android
         run: |
@@ -127,6 +190,10 @@ jobs:
 
           sed -i '/plugins {/a\    id "com.google.gms.google-services"' app/build.gradle
 
+
+      # ---------------------------------------------------------
+      # 13. Configure APK signing
+      # ---------------------------------------------------------
       - name: Configure APK signing
         working-directory: android
         env:
@@ -155,12 +222,19 @@ jobs:
           echo "" >> app/build.gradle
           echo 'apply from: "signing.gradle"' >> app/build.gradle
 
-          echo "===== Signing configuration ====="
-          cat app/signing.gradle
+          echo "Signing configuration added successfully"
 
+
+      # ---------------------------------------------------------
+      # 14. Sync Capacitor
+      # ---------------------------------------------------------
       - name: Sync web application and native plugins
         run: npx cap sync android
 
+
+      # ---------------------------------------------------------
+      # 15. Verify signing certificate
+      # ---------------------------------------------------------
       - name: Verify permanent signing certificate
         working-directory: android
         env:
@@ -173,6 +247,10 @@ jobs:
             -alias passbook \
             -storepass "$KEYSTORE_PASSWORD" | grep SHA1
 
+
+      # ---------------------------------------------------------
+      # 16. Verify Firebase configuration
+      # ---------------------------------------------------------
       - name: Verify Android Firebase configuration
         run: |
           echo "===== Firebase checks ====="
@@ -186,6 +264,10 @@ jobs:
           grep -q 'rgcfaIncludeGoogle = true' android/variables.gradle
           echo "✓ Google provider enabled"
 
+
+      # ---------------------------------------------------------
+      # 17. Build APK
+      # ---------------------------------------------------------
       - name: Build debug APK
         working-directory: android
         env:
@@ -193,12 +275,20 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleDebug
 
+
+      # ---------------------------------------------------------
+      # 18. Verify APK signing
+      # ---------------------------------------------------------
       - name: Verify APK signing
         working-directory: android
         run: |
           echo "===== APK signing report ====="
           ./gradlew signingReport
 
+
+      # ---------------------------------------------------------
+      # 19. Upload APK
+      # ---------------------------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
