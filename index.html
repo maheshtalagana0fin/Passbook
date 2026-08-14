@@ -752,17 +752,12 @@
         } else {
           const provider = new firebase.auth.GoogleAuthProvider();
           provider.setCustomParameters({ prompt: "select_account" });
-          // Always try a popup first. The previous version forced redirect sign-in
-          // on mobile/PWA, which can appear to do nothing in installed browsers.
-          try {
+          const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+          const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+          if (isStandalone || isMobile){
+            await firebase.auth().signInWithRedirect(provider);
+          } else {
             await firebase.auth().signInWithPopup(provider);
-          } catch (popupErr) {
-            // If the browser explicitly blocks popups, fall back to redirect.
-            if (popupErr && (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/operation-not-supported-in-this-environment')) {
-              await firebase.auth().signInWithRedirect(provider);
-              return;
-            }
-            throw popupErr;
           }
         }
       }catch(err){
@@ -1814,11 +1809,61 @@
 })();
 </script>
 <script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed', err));
+/* PWA update manager: checks GitHub Pages for a new service worker and
+   activates it without requiring the user to uninstall/reinstall the app. */
+(function(){
+  if (!('serviceWorker' in navigator)) return;
+
+  let refreshing = false;
+  let registration = null;
+  let updateButton = null;
+
+  function showUpdate(worker){
+    if (!updateButton){
+      updateButton = document.createElement('button');
+      updateButton.id = 'pwaUpdateBtn';
+      updateButton.type = 'button';
+      updateButton.textContent = '⬆ Update app';
+      updateButton.title = 'A new version is available';
+      updateButton.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;padding:12px 16px;border:0;border-radius:999px;background:#1f6feb;color:#fff;font:600 14px system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.22);cursor:pointer;display:none';
+      document.body.appendChild(updateButton);
+    }
+    updateButton.style.display = 'block';
+    updateButton.onclick = function(){
+      updateButton.disabled = true;
+      updateButton.textContent = 'Updating…';
+      worker.postMessage({type:'SKIP_WAITING'});
+    };
+  }
+
+  function watchForUpdate(reg){
+    if (reg.waiting) showUpdate(reg.waiting);
+    reg.addEventListener('updatefound', function(){
+      const worker = reg.installing;
+      if (!worker) return;
+      worker.addEventListener('statechange', function(){
+        if (worker.state === 'installed' && navigator.serviceWorker.controller){
+          showUpdate(worker);
+        }
+      });
+    });
+  }
+
+  window.addEventListener('load', async function(){
+    try{
+      registration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+      watchForUpdate(registration);
+      await registration.update();
+      setInterval(function(){ registration && registration.update().catch(()=>{}); }, 60 * 60 * 1000);
+    }catch(err){ console.log('SW registration failed', err); }
   });
-}
+
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+})();
 </script>
 </body>
 </html>
