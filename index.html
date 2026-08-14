@@ -383,12 +383,6 @@
   #syncStatus .dot{ width:6px; height:6px; border-radius:50%; background:#c9a95f; display:inline-block; }
   #syncStatus.synced .dot{ background:#7fbf8f; }
   #syncStatus.error .dot{ background:var(--debit); }
-
-  .sync-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
-  .sync-action-btn{background:rgba(255,255,255,.10);border:1px solid rgba(244,236,216,.45);color:#f4ecd8;border-radius:6px;padding:6px 10px;font-family:'IBM Plex Mono',monospace;font-size:10.5px;cursor:pointer;}
-  .sync-action-btn:hover{background:rgba(255,255,255,.18);}
-  .sync-action-btn:disabled{opacity:.6;cursor:wait;}
-
   #signOutBtn{
     background:none; border:none; color:#c9a95f; font-family:'IBM Plex Mono', monospace;
     font-size:11px; cursor:pointer; text-decoration:underline; padding:0; margin-top:6px;
@@ -419,10 +413,6 @@
     <div class="cover-sub" id="coverLastUsed" style="margin-top:2px; opacity:0.8;">Last used · loading…</div>
     <div class="cover-sub" id="coverAccount" style="margin-top:2px; opacity:0.8;"></div>
     <div id="syncStatus"><span class="dot"></span><span id="syncStatusText">Not signed in</span></div>
-    <div class="sync-actions">
-      <button class="sync-action-btn" id="syncNowBtn" type="button">🔄 Sync Now</button>
-      <button class="sync-action-btn" id="refreshAppBtn" type="button">⟳ Refresh App</button>
-    </div>
     <button id="signOutBtn" style="display:none;">Sign out</button>
     <div class="cover-balance">
       <span class="label">Current Balance</span>
@@ -433,7 +423,8 @@
   <div class="tabs">
     <div class="tab active" data-tab="add">+ New Entry</div>
     <div class="tab" data-tab="ledger">Ledger</div>
-    <div class="tab" data-tab="loans">Loans</div>
+    <div class="tab" data-tab="loans">Loans & EMIs</div>
+    <div class="tab" data-tab="cards">Cards</div>
     <div class="tab" data-tab="summary">Summary</div>
   </div>
 
@@ -468,6 +459,23 @@
         <div>
           <label>Payment Mode</label>
           <select id="fMode"></select>
+        </div>
+        <div id="cardSelectWrap" style="display:none;">
+          <label>Select Card</label>
+          <select id="fCard"></select>
+        </div>
+        <div id="cardPaymentWrap" style="display:none;">
+          <label>Card Payment Type</label>
+          <select id="fCardPaymentType"><option value="full">Paid in Full</option><option value="emi">Convert to EMI</option><option value="bill">Credit Card Bill Payment</option></select>
+        </div>
+        <div id="emiFields" class="full" style="display:none;">
+          <div class="form-grid">
+            <div><label>Total EMI Amount (₹)</label><input type="number" id="fEmiTotal" min="0" step="0.01" placeholder="Total payable"></div>
+            <div><label>EMI Amount / month (₹)</label><input type="number" id="fEmiAmount" min="0" step="0.01" placeholder="Monthly EMI"></div>
+            <div><label>Interest Rate (% p.a.)</label><input type="number" id="fEmiRate" min="0" step="0.01" placeholder="0 if no interest"></div>
+            <div><label>Total EMIs</label><input type="number" id="fEmiTenure" min="1" step="1" placeholder="e.g. 12"></div>
+            <div><label>First EMI Date</label><input type="date" id="fEmiStart"></div>
+          </div>
         </div>
         <div>
           <label>Note (optional)</label>
@@ -551,6 +559,24 @@
     <div id="loansContainer"></div>
   </div>
 
+
+  <!-- CARDS -->
+  <div class="page" id="page-cards" style="display:none;">
+    <h2 class="section-title">Add a Card</h2>
+    <div class="form-grid">
+      <div class="full"><label>Card Name</label><input type="text" id="cName" placeholder="e.g. HDFC Regalia"></div>
+      <div><label>Card Type</label><select id="cType"><option value="credit">Credit Card</option><option value="debit">Debit Card</option></select></div>
+      <div><label>Bank</label><input type="text" id="cBank" placeholder="e.g. HDFC"></div>
+      <div><label>Last 4 Digits (optional)</label><input type="text" id="cLast4" maxlength="4" inputmode="numeric" placeholder="1234"></div>
+      <div class="credit-only"><label>Billing Date (day of month)</label><input type="number" id="cBillingDay" min="1" max="31" placeholder="e.g. 15"></div>
+      <div class="credit-only"><label>Due Date (day of month)</label><input type="number" id="cDueDay" min="1" max="31" placeholder="e.g. 5"></div>
+      <button class="submit-btn" id="addCardBtn">ADD CARD</button>
+      <button class="export-btn" id="cancelCardEditBtn" style="display:none; margin-top:8px;">Cancel Edit</button>
+    </div>
+    <h2 class="section-title" style="margin-top:22px;">Your Cards</h2>
+    <div id="cardsContainer"></div>
+  </div>
+
   <!-- SUMMARY -->
   <div class="page last" id="page-summary" style="display:none;">
     <h2 class="section-title">Monthly Summary</h2>
@@ -616,11 +642,14 @@
 
   let transactions = [];
   let loans = [];
+  let cards = [];
   let currentType = "income";
   let editingTxnId = null;
   let editingLoanId = null;
+  let editingCardId = null;
   const KEY = "passbook:transactions";       // offline mirror only
   const LOANS_KEY = "passbook:loans";        // offline mirror only
+  const CARDS_KEY = "passbook:cards";        // offline mirror only
   const LAST_USED_KEY = "passbook:lastUsed";
 
   const $ = id => document.getElementById(id);
@@ -644,11 +673,13 @@
   function mirrorToLocalStorage(){
     try{ localStorage.setItem(KEY, JSON.stringify(transactions)); }catch(e){}
     try{ localStorage.setItem(LOANS_KEY, JSON.stringify(loans)); }catch(e){}
+    try{ localStorage.setItem(CARDS_KEY, JSON.stringify(cards)); }catch(e){}
   }
 
   function loadLocalMirror(){
     try{ const r = localStorage.getItem(KEY); transactions = r ? JSON.parse(r) : []; }catch(e){ transactions = []; }
     try{ const r2 = localStorage.getItem(LOANS_KEY); loans = r2 ? JSON.parse(r2) : []; }catch(e){ loans = []; }
+    try{ const r3 = localStorage.getItem(CARDS_KEY); cards = r3 ? JSON.parse(r3) : []; }catch(e){ cards = []; }
   }
 
   async function loadData(){
@@ -665,25 +696,9 @@
       return;
     }
 
-    try{
-      firebase.initializeApp(FIREBASE_CONFIG);
-      db = firebase.firestore();
-    }catch(err){
-      console.error("Firebase initialization failed", err);
-      setSyncStatus("error", "Firebase initialization failed");
-      $("authConfigWarning").textContent = "Firebase initialization failed: " + (err.message || "Unknown error");
-      $("authConfigWarning").style.display = "block";
-      return;
-    }
-
-    // Attach sign-in handling immediately. Do not wait for Firestore persistence setup.
-    try{ await db.enablePersistence({ synchronizeTabs: true }); }catch(e){ /* multiple tabs or unsupported browser — fine */ }
-
-    firebase.auth().getRedirectResult().catch(err => {
-      console.error("Google redirect sign-in failed", err);
-      setSyncStatus("error", "Sign-in failed");
-      alert("Google sign-in failed: " + (err.message || err.code || "please try again."));
-    });
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+    try{ await db.enablePersistence({ synchronizeTabs: true }); }catch(e){ /* multiple tabs or unsupported browser — fine, just no offline cache */ }
 
     firebase.auth().onAuthStateChanged(user => {
       if (user){
@@ -703,33 +718,22 @@
     });
 
     $("googleSignInBtn").addEventListener('click', async () => {
-      const btn = $("googleSignInBtn");
       try{
-        btn.disabled = true;
-        btn.textContent = "Signing in…";
         if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.FirebaseAuthentication){
+          // Running inside the Android app — use native Google Sign-In
           const result = await window.Capacitor.Plugins.FirebaseAuthentication.signInWithGoogle();
           const idToken = result && result.credential && result.credential.idToken;
           if (!idToken) throw new Error("No ID token returned from native sign-in");
           const credential = firebase.auth.GoogleAuthProvider.credential(idToken);
           await firebase.auth().signInWithCredential(credential);
         } else {
+          // Running in a regular browser — use the web popup flow
           const provider = new firebase.auth.GoogleAuthProvider();
-          provider.setCustomParameters({ prompt: "select_account" });
-          const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-          const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-          if (isStandalone || isMobile){
-            await firebase.auth().signInWithRedirect(provider);
-          } else {
-            await firebase.auth().signInWithPopup(provider);
-          }
+          await firebase.auth().signInWithPopup(provider);
         }
       }catch(err){
-        console.error("Sign-in failed", err);
-        btn.disabled = false;
-        btn.textContent = "Continue with Google";
-        setSyncStatus("error", "Sign-in failed");
-        alert("Sign-in failed: " + (err.message || err.code || "please try again."));
+        console.error(err);
+        alert("Sign-in failed: " + (err.message || "please try again."));
       }
     });
 
@@ -758,6 +762,8 @@
         const data = snap.data();
         transactions = Array.isArray(data.transactions) ? data.transactions : [];
         loans = Array.isArray(data.loans) ? data.loans : [];
+        cards = Array.isArray(data.cards) ? data.cards : [];
+        cards = Array.isArray(data.cards) ? data.cards : [];
       } else {
         // First time this account is used — seed from local mirror if present, else start empty
         loadLocalMirror();
@@ -778,7 +784,7 @@
     if (!isConfigured || !docRef) return;
     try{
       await docRef.set({
-        transactions, loans,
+        transactions, loans, cards,
         lastUsed: new Date().toISOString()
       }, { merge: true });
     }catch(e){
@@ -789,58 +795,7 @@
 
   async function saveData(){ await pushToCloud(); }
   async function saveLoans(){ await pushToCloud(); }
-
-  // Force a fresh read from Firestore. This refreshes financial data, not the app code.
-  async function syncNow(){
-    const btn = $("syncNowBtn");
-    if (!currentUser || !docRef){
-      setSyncStatus('error', 'Sign in first to sync');
-      return;
-    }
-    btn.disabled = true;
-    const original = btn.textContent;
-    btn.textContent = 'Syncing…';
-    setSyncStatus(null, 'Syncing…');
-    try{
-      const snap = await docRef.get({ source: 'server' });
-      if (snap.exists){
-        const data = snap.data();
-        transactions = Array.isArray(data.transactions) ? data.transactions : [];
-        loans = Array.isArray(data.loans) ? data.loans : [];
-        mirrorToLocalStorage();
-        render();
-      }
-      setSyncStatus('synced', 'Synced · just now');
-    }catch(err){
-      console.error('Manual sync failed', err);
-      setSyncStatus('error', 'Sync failed — check connection');
-    }finally{
-      btn.disabled = false;
-      btn.textContent = original;
-    }
-  }
-
-  // Clear stale PWA caches/service-worker versions, then reload the latest GitHub Pages files.
-  async function refreshApp(){
-    const btn = $("refreshAppBtn");
-    btn.disabled = true;
-    btn.textContent = 'Refreshing…';
-    try{
-      if ('serviceWorker' in navigator){
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(reg => reg.update()));
-      }
-      if ('caches' in window){
-        const keys = await caches.keys();
-        await Promise.all(keys.map(key => caches.delete(key)));
-      }
-    }catch(err){ console.warn('App refresh cleanup failed', err); }
-    const sep = location.href.includes('?') ? '&' : '?';
-    location.replace(location.href.split('#')[0] + sep + 'v=' + Date.now());
-  }
-
-  $("syncNowBtn").addEventListener('click', syncNow);
-  $("refreshAppBtn").addEventListener('click', refreshApp);
+  async function saveCards(){ await pushToCloud(); }
 
 
   // Uses manually entered "EMIs paid" (accurate for midway loans) rather than
@@ -1195,6 +1150,71 @@
     });
   }
 
+
+  function populateCards(selectEl, typeFilter){
+    if (!selectEl) return;
+    const list = cards.filter(c => !typeFilter || c.type === typeFilter);
+    selectEl.innerHTML = '<option value="">Select card</option>';
+    list.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = `${c.name}${c.last4 ? " •••• " + c.last4 : ""}`;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function getLinkedLoanPaidCount(loan){
+    if (loan.repaymentType !== "card-linked") return loan.paidEmis || 0;
+    const cardPayments = transactions.filter(t => t.type === "expense" && t.cardId === loan.cardId && t.cardPaymentType === "bill");
+    if (!cardPayments.length) return loan.paidEmis || 0;
+    // A bill payment marks due installments as covered, oldest first.
+    const paidValue = cardPayments.reduce((s,t)=>s+t.amount,0);
+    return Math.max(loan.paidEmis || 0, Math.min(loan.tenure, Math.floor(paidValue / Math.max(1, loan.emi))));
+  }
+
+  function renderCards(){
+    const container = $("cardsContainer");
+    if (!container) return;
+    if (!cards.length){
+      container.innerHTML = '<div class="empty-state">No cards added yet.</div>';
+      return;
+    }
+    container.innerHTML = cards.map(c => {
+      const linked = loans.filter(l => l.cardId === c.id);
+      const outstanding = linked.reduce((sum,l)=>sum + computeLoanStatus({...l, paidEmis:getLinkedLoanPaidCount(l)}).outstanding,0);
+      return `<div class="loan-card">
+        <div class="loan-card-head"><div class="name">${c.name}${c.last4 ? " •••• " + c.last4 : ""}</div><div class="badge">${c.type === "credit" ? "Credit" : "Debit"}</div></div>
+        <div class="loan-stats">
+          <div class="stat"><div class="k">Bank</div><div class="v">${c.bank || "—"}</div></div>
+          <div class="stat"><div class="k">Billing / Due</div><div class="v">${c.type==="credit" ? ((c.billingDay||"—")+" / "+(c.dueDay||"—")) : "Not applicable"}</div></div>
+          <div class="stat"><div class="k">Linked EMIs</div><div class="v">${linked.length}</div></div>
+          <div class="stat"><div class="k">EMI Outstanding</div><div class="v">${fmt(outstanding)}</div></div>
+        </div>
+        <div class="loan-card-foot"><span class="pct">${linked.length ? "Linked purchases tracked automatically" : "No linked EMIs"}</span>
+          <div class="loan-actions"><button class="edit-card-btn" data-id="${c.id}">Edit</button><button class="del-card-btn" data-id="${c.id}">Delete</button></div>
+        </div></div>`;
+    }).join('');
+
+    container.querySelectorAll(".del-card-btn").forEach(btn => btn.addEventListener("click", async ()=>{
+      const id = btn.dataset.id;
+      if (loans.some(l=>l.cardId===id)){ alert("This card has linked EMI plans. Remove or reassign them first."); return; }
+      if (!confirm("Remove this card?")) return;
+      cards = cards.filter(c=>String(c.id)!==String(id));
+      await saveCards(); render();
+    }));
+    container.querySelectorAll(".edit-card-btn").forEach(btn => btn.addEventListener("click", ()=>{
+      const c = cards.find(x=>String(x.id)===String(btn.dataset.id)); if (!c) return;
+      editingCardId=c.id; $("cName").value=c.name||""; $("cType").value=c.type||"credit"; $("cBank").value=c.bank||""; $("cLast4").value=c.last4||"";
+      $("cBillingDay").value=c.billingDay||""; $("cDueDay").value=c.dueDay||"";
+      $("addCardBtn").textContent="UPDATE CARD"; $("cancelCardEditBtn").style.display="block"; updateCardTypeUI();
+    });
+  }
+
+  function updateCardTypeUI(){
+    const credit = $("cType").value === "credit";
+    document.querySelectorAll(".credit-only").forEach(el=>el.style.display=credit?"block":"none");
+  }
+
   function renderLoans(){
     const container = $("loansContainer");
     if (!loans.length){
@@ -1305,6 +1325,7 @@
     renderLedger();
     renderSummary();
     renderLoans();
+    renderCards();
   }
 
   // Tabs
@@ -1312,7 +1333,7 @@
     tab.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       tab.classList.add('active');
-      ['add','ledger','loans','summary'].forEach(p => {
+      ['add','ledger','loans','cards','summary'].forEach(p => {
         $("page-"+p).style.display = (p === tab.dataset.tab) ? 'block' : 'none';
       });
     });
@@ -1332,6 +1353,35 @@
     populateCategories();
   });
 
+
+  function updateCardPurchaseUI(){
+    const isCard = currentType === "expense" && ( $("fMode").value === "Credit Card" || $("fMode").value === "Debit Card" );
+    $("cardSelectWrap").style.display = isCard ? "block" : "none";
+    $("cardPaymentWrap").style.display = isCard ? "block" : "none";
+    if (isCard){
+      populateCards($("fCard"), $("fMode").value === "Credit Card" ? "credit" : "debit");
+      const isEmi = $("fCardPaymentType").value === "emi";
+      $("emiFields").style.display = isEmi ? "block" : "none";
+    } else $("emiFields").style.display = "none";
+  }
+  $("fMode").addEventListener("change", updateCardPurchaseUI);
+  $("fCardPaymentType").addEventListener("change", updateCardPurchaseUI);
+  $("cType").addEventListener("change", updateCardTypeUI);
+  $("addCardBtn").addEventListener("click", async ()=>{
+    const name=$("cName").value.trim(), type=$("cType").value, bank=$("cBank").value.trim(), last4=$("cLast4").value.trim();
+    const billingDay=parseInt($("cBillingDay").value,10)||null, dueDay=parseInt($("cDueDay").value,10)||null;
+    if (!name){ alert("Please enter a card name."); return; }
+    if (last4 && !/^\d{4}$/.test(last4)){ alert("Last 4 digits must contain exactly 4 numbers."); return; }
+    if (type==="credit" && ((!billingDay || billingDay>31) || (!dueDay || dueDay>31))){ alert("Please enter valid billing and due dates for the credit card."); return; }
+    const obj={name,type,bank,last4,billingDay:type==="credit"?billingDay:null,dueDay:type==="credit"?dueDay:null};
+    if (editingCardId){ const c=cards.find(x=>x.id===editingCardId); if(c) Object.assign(c,obj); editingCardId=null; }
+    else cards.push({id:Date.now()+"card"+Math.random().toString(36).slice(2,7),...obj});
+    await saveCards();
+    ["cName","cBank","cLast4","cBillingDay","cDueDay"].forEach(id=>$(id).value="");
+    $("cType").value="credit"; $("addCardBtn").textContent="ADD CARD"; $("cancelCardEditBtn").style.display="none"; updateCardTypeUI(); render();
+  });
+  $("cancelCardEditBtn").addEventListener("click", ()=>{ editingCardId=null; $("addCardBtn").textContent="ADD CARD"; $("cancelCardEditBtn").style.display="none"; ["cName","cBank","cLast4","cBillingDay","cDueDay"].forEach(id=>$(id).value=""); });
+
   // Submit
   $("submitBtn").addEventListener('click', async () => {
     const date = $("fDate").value;
@@ -1343,10 +1393,27 @@
     if (!date){ alert("Please pick a date."); return; }
     if (!amount || amount <= 0){ alert("Please enter a valid amount."); return; }
 
-    transactions.push({
-      id: Date.now() + Math.random().toString(36).slice(2,7),
-      date, type: currentType, amount, category, mode, note
-    });
+    const cardId = $("fCard").value || null;
+    const cardPaymentType = $("fCardPaymentType").value || "full";
+    if (currentType === "expense" && (mode === "Credit Card" || mode === "Debit Card")){
+      if (!cardId){ alert("Please select the card used."); return; }
+      if (cardPaymentType === "emi"){
+        const emiTotal = parseFloat($("fEmiTotal").value) || amount;
+        const emiAmount = parseFloat($("fEmiAmount").value);
+        const emiRate = parseFloat($("fEmiRate").value) || 0;
+        const emiTenure = parseInt($("fEmiTenure").value,10);
+        const emiStart = $("fEmiStart").value;
+        if (!emiAmount || !emiTenure || !emiStart){ alert("For EMI, enter monthly EMI, total EMIs and first EMI date."); return; }
+        const loanId = Date.now() + "emi" + Math.random().toString(36).slice(2,7);
+        loans.push({id:loanId,name:note || category || "Card EMI",principal:emiTotal,rate:emiRate,emi:emiAmount,tenure:emiTenure,paidEmis:0,startDate:emiStart,closed:false,repaymentType:"card-linked",cardId});
+        transactions.push({id:Date.now()+Math.random().toString(36).slice(2,7),date,type:currentType,amount,category,mode,note,cardId,cardPaymentType:"emi",loanId});
+        await saveLoans();
+      } else {
+        transactions.push({id:Date.now()+Math.random().toString(36).slice(2,7),date,type:currentType,amount,category,mode,note,cardId,cardPaymentType});
+      }
+    } else {
+      transactions.push({id:Date.now()+Math.random().toString(36).slice(2,7),date,type:currentType,amount,category,mode,note,cardId,cardPaymentType:null});
+    }
     await saveData();
 
     $("fAmount").value = "";
@@ -1603,7 +1670,8 @@
       version: 1,
       exportedAt: new Date().toISOString(),
       transactions,
-      loans
+      loans,
+      cards
     };
     const blob = new Blob([JSON.stringify(snapshot, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
@@ -1631,8 +1699,9 @@
       }
       const incomingCount = data.transactions.length;
       const incomingLoans = Array.isArray(data.loans) ? data.loans.length : 0;
+      const incomingCards = Array.isArray(data.cards) ? data.cards.length : 0;
       const replace = confirm(
-        `This backup has ${incomingCount} entries and ${incomingLoans} loan(s).\n\n` +
+        `This backup has ${incomingCount} entries, ${incomingLoans} loan(s) and ${incomingCards} card(s).\n\n` +
         `Press OK to REPLACE your current data with this backup.\n` +
         `Press Cancel to MERGE it into your current data instead.`
       );
@@ -1640,6 +1709,7 @@
       if (replace){
         transactions = data.transactions;
         loans = Array.isArray(data.loans) ? data.loans : [];
+        cards = Array.isArray(data.cards) ? data.cards : [];
       } else {
         const existingIds = new Set(transactions.map(t => t.id));
         data.transactions.forEach(t => { if (!existingIds.has(t.id)) transactions.push(t); });
@@ -1647,10 +1717,15 @@
           const existingLoanIds = new Set(loans.map(l => l.id));
           data.loans.forEach(l => { if (!existingLoanIds.has(l.id)) loans.push(l); });
         }
+        if (Array.isArray(data.cards)){
+          const existingCardIds = new Set(cards.map(c => c.id));
+          data.cards.forEach(c => { if (!existingCardIds.has(c.id)) cards.push(c); });
+        }
       }
 
       await saveData();
       await saveLoans();
+      await saveCards();
       render();
       alert("Backup restored successfully.");
     }catch(err){
@@ -1663,6 +1738,8 @@
   $("fDate").value = new Date().toISOString().slice(0,10);
   populateCategories();
   populatePaymentModes($("fMode"));
+  updateCardPurchaseUI();
+  updateCardTypeUI();
   loadData();
 })();
 </script>
