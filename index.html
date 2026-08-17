@@ -624,7 +624,7 @@
     </div>
     <div class="footnote" style="margin-top:8px;">Save a backup before clearing your browser's site data, switching phones, or reinstalling — then restore it here to get everything back, including your loans.</div>
 
-    <div class="footnote">Your data is stored privately in this browser on this device, and persists across visits — as long as you keep reopening this same file and don't clear your browser's site data.</div>
+    <div class="footnote">Your data is linked to your signed-in Google account and synced privately to Firebase. This device also keeps a separate offline cache for each account.</div>
   </div>
 </div>
 
@@ -652,10 +652,19 @@
   let editingTxnId = null;
   let editingLoanId = null;
   let editingCardId = null;
-  const KEY = "passbook:transactions";       // offline mirror only
-  const LOANS_KEY = "passbook:loans";        // offline mirror only
-  const CARDS_KEY = "passbook:cards";        // offline mirror only
-  const LAST_USED_KEY = "passbook:lastUsed";
+  // Per-account local cache. Never use one shared localStorage key for all users.
+  const LEGACY_KEY = "passbook:transactions";
+  const LEGACY_LOANS_KEY = "passbook:loans";
+  const LEGACY_CARDS_KEY = "passbook:cards";
+  const LEGACY_MIGRATED_PREFIX = "passbook:legacyMigration:";
+  const LAST_USED_PREFIX = "passbook:lastUsed:";
+
+  function userKey(kind, uid){
+    return `passbook:${uid}:${kind}`;
+  }
+  function currentKey(kind){
+    return currentUser ? userKey(kind, currentUser.uid) : null;
+  }
 
   const $ = id => document.getElementById(id);
 
@@ -675,26 +684,70 @@
     $("syncStatusText").textContent = text;
   }
 
+  function clearInMemoryData(){
+    transactions = [];
+    loans = [];
+    cards = [];
+    editingTxnId = null;
+    editingLoanId = null;
+    editingCardId = null;
+  }
+
   function mirrorToLocalStorage(){
-    try{ localStorage.setItem(KEY, JSON.stringify(transactions)); }catch(e){}
-    try{ localStorage.setItem(LOANS_KEY, JSON.stringify(loans)); }catch(e){}
-    try{ localStorage.setItem(CARDS_KEY, JSON.stringify(cards)); }catch(e){}
+    if (!currentUser) return;
+    try{ localStorage.setItem(currentKey("transactions"), JSON.stringify(transactions)); }catch(e){}
+    try{ localStorage.setItem(currentKey("loans"), JSON.stringify(loans)); }catch(e){}
+    try{ localStorage.setItem(currentKey("cards"), JSON.stringify(cards)); }catch(e){}
   }
 
   function loadLocalMirror(){
-    try{ const r = localStorage.getItem(KEY); transactions = r ? JSON.parse(r) : []; }catch(e){ transactions = []; }
-    try{ const r2 = localStorage.getItem(LOANS_KEY); loans = r2 ? JSON.parse(r2) : []; }catch(e){ loans = []; }
-    try{ const r3 = localStorage.getItem(CARDS_KEY); cards = r3 ? JSON.parse(r3) : []; }catch(e){ cards = []; }
+    if (!currentUser){ clearInMemoryData(); return; }
+    try{ const r = localStorage.getItem(currentKey("transactions")); transactions = r ? JSON.parse(r) : []; }catch(e){ transactions = []; }
+    try{ const r2 = localStorage.getItem(currentKey("loans")); loans = r2 ? JSON.parse(r2) : []; }catch(e){ loans = []; }
+    try{ const r3 = localStorage.getItem(currentKey("cards")); cards = r3 ? JSON.parse(r3) : []; }catch(e){ cards = []; }
+  }
+
+  function readLegacyData(){
+    let legacyTransactions=[], legacyLoans=[], legacyCards=[];
+    try{ const r=localStorage.getItem(LEGACY_KEY); legacyTransactions=r?JSON.parse(r):[]; }catch(e){}
+    try{ const r=localStorage.getItem(LEGACY_LOANS_KEY); legacyLoans=r?JSON.parse(r):[]; }catch(e){}
+    try{ const r=localStorage.getItem(LEGACY_CARDS_KEY); legacyCards=r?JSON.parse(r):[]; }catch(e){}
+    return { transactions: legacyTransactions, loans: legacyLoans, cards: legacyCards };
+  }
+
+  async function handleFirstAccountSetup(){
+    if (!currentUser || !docRef) return;
+    const marker = LEGACY_MIGRATED_PREFIX + currentUser.uid;
+    const legacy = readLegacyData();
+    const hasLegacy = legacy.transactions.length || legacy.loans.length || legacy.cards.length;
+    if (hasLegacy && !localStorage.getItem(marker)){
+      const ok = confirm(
+        `Existing Passbook data found on this device.\n\n`+
+        `Transactions: ${legacy.transactions.length}\nLoans: ${legacy.loans.length}\nCards: ${legacy.cards.length}\n\n`+
+        `Do you want to add this existing data to ${currentUser.email || 'this Google account'}?\n\n`+
+        `OK = MIGRATE MY DATA\nCancel = START WITH AN EMPTY ACCOUNT`
+      );
+      localStorage.setItem(marker, "done");
+      if (ok){
+        transactions=legacy.transactions; loans=legacy.loans; cards=legacy.cards;
+        await pushToCloud();
+      } else {
+        clearInMemoryData();
+        mirrorToLocalStorage();
+      }
+    } else {
+      loadLocalMirror();
+    }
   }
 
   async function loadData(){
     if (!isConfigured){
       $("authConfigWarning").style.display = "block";
       // Fall back to local-only mode so the app is still usable while you set up Firebase
-      loadLocalMirror();
+      clearInMemoryData();
       try{
-        previousLastUsed = localStorage.getItem(LAST_USED_KEY);
-        localStorage.setItem(LAST_USED_KEY, new Date().toISOString());
+        previousLastUsed = localStorage.getItem("passbook:lastUsed:local");
+        localStorage.setItem("passbook:lastUsed:local", new Date().toISOString());
       }catch(e){ previousLastUsed = null; }
       $("authGate").style.display = "none";
       render();
@@ -723,14 +776,19 @@
 
     firebase.auth().onAuthStateChanged(user => {
       if (user){
+        // Clear the previous account's data before loading this account.
+        if (!currentUser || currentUser.uid !== user.uid) clearInMemoryData();
         currentUser = user;
         $("authGate").style.display = "none";
         $("signOutBtn").style.display = "inline";
         $("coverAccount").textContent = user.email || user.displayName || "Signed in";
         attachSync(user.uid);
       } else {
-        currentUser = null;
         if (unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+        currentUser = null;
+        docRef = null;
+        clearInMemoryData();
+        render();
         $("authGate").style.display = "flex";
         $("signOutBtn").style.display = "none";
         $("coverAccount").textContent = "";
@@ -752,12 +810,17 @@
         } else {
           const provider = new firebase.auth.GoogleAuthProvider();
           provider.setCustomParameters({ prompt: "select_account" });
-          const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-          const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-          if (isStandalone || isMobile){
-            await firebase.auth().signInWithRedirect(provider);
-          } else {
+          // Always try a popup first. The previous version forced redirect sign-in
+          // on mobile/PWA, which can appear to do nothing in installed browsers.
+          try {
             await firebase.auth().signInWithPopup(provider);
+          } catch (popupErr) {
+            // If the browser explicitly blocks popups, fall back to redirect.
+            if (popupErr && (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/operation-not-supported-in-this-environment')) {
+              await firebase.auth().signInWithRedirect(provider);
+              return;
+            }
+            throw popupErr;
           }
         }
       }catch(err){
@@ -795,12 +858,14 @@
         transactions = Array.isArray(data.transactions) ? data.transactions : [];
         loans = Array.isArray(data.loans) ? data.loans : [];
         cards = Array.isArray(data.cards) ? data.cards : [];
-        cards = Array.isArray(data.cards) ? data.cards : [];
       } else {
-        // First time this account is used — seed from local mirror if present, else start empty
-        loadLocalMirror();
+        // Brand-new cloud account: migrate old shared cache only with explicit approval.
+        handleFirstAccountSetup().catch(err => {
+          console.error("First-account setup failed", err);
+          clearInMemoryData();
+        });
       }
-      mirrorToLocalStorage();
+      if (snap.exists) mirrorToLocalStorage();
       setSyncStatus('synced', snap.metadata.fromCache ? "Synced (offline cache)" : "Synced");
       render();
     }, err => {
@@ -817,8 +882,10 @@
     try{
       await docRef.set({
         transactions, loans, cards,
-        lastUsed: new Date().toISOString()
+        lastUsed: new Date().toISOString(),
+        schemaVersion: 2
       }, { merge: true });
+      try{ localStorage.setItem(LAST_USED_PREFIX + currentUser.uid, new Date().toISOString()); }catch(e){}
     }catch(e){
       console.error("Cloud save failed", e);
       setSyncStatus('error', "Save queued — will retry when online");
@@ -1095,7 +1162,7 @@
     $("sumExpense").textContent = fmt(expense);
     $("sumNet").textContent = fmt(income - expense);
 
-    const totalLoanOutstanding = loans.reduce((s,l) => s + computeLoanStatus(l).outstanding, 0);
+    const totalLoanOutstanding = loans.reduce((s,l) => s + computeLoanStatus({...l, paidEmis:l.repaymentType === "card-linked" ? getLinkedLoanPaidCount(l) : (l.paidEmis||0)}).outstanding, 0);
     $("sumLoans").textContent = fmt(totalLoanOutstanding);
 
     const catTotals = {};
@@ -1255,7 +1322,8 @@
     }
     let html = '';
     loans.forEach(loan => {
-      const s = computeLoanStatus(loan);
+      const effectivePaid = loan.repaymentType === "card-linked" ? getLinkedLoanPaidCount(loan) : (loan.paidEmis || 0);
+      const s = computeLoanStatus({...loan, paidEmis: effectivePaid});
       const isClosed = loan.closed || s.outstanding <= 1;
       html += `
         <div class="loan-card ${isClosed?'closed':''}">
@@ -1623,7 +1691,7 @@
 
     if (loans.length){
       const loanData = loans.map(l => {
-        const s = computeLoanStatus(l);
+        const s = computeLoanStatus({...l, paidEmis:l.repaymentType === "card-linked" ? getLinkedLoanPaidCount(l) : (l.paidEmis||0)});
         return {
           "Loan Name": l.name,
           "Principal": l.principal,
@@ -1661,7 +1729,7 @@
       catTotals[t.category] = (catTotals[t.category]||0) + t.amount;
     });
     const topCats = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    const totalLoanOutstanding = loans.reduce((s,l) => s + computeLoanStatus(l).outstanding, 0);
+    const totalLoanOutstanding = loans.reduce((s,l) => s + computeLoanStatus({...l, paidEmis:l.repaymentType === "card-linked" ? getLinkedLoanPaidCount(l) : (l.paidEmis||0)}).outstanding, 0);
 
     let text = `My Passbook — Summary (${monthLabelText})\n\n`;
     text += `Income: ${fmt(income)}\n`;
@@ -1809,61 +1877,11 @@
 })();
 </script>
 <script>
-/* PWA update manager: checks GitHub Pages for a new service worker and
-   activates it without requiring the user to uninstall/reinstall the app. */
-(function(){
-  if (!('serviceWorker' in navigator)) return;
-
-  let refreshing = false;
-  let registration = null;
-  let updateButton = null;
-
-  function showUpdate(worker){
-    if (!updateButton){
-      updateButton = document.createElement('button');
-      updateButton.id = 'pwaUpdateBtn';
-      updateButton.type = 'button';
-      updateButton.textContent = '⬆ Update app';
-      updateButton.title = 'A new version is available';
-      updateButton.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;padding:12px 16px;border:0;border-radius:999px;background:#1f6feb;color:#fff;font:600 14px system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.22);cursor:pointer;display:none';
-      document.body.appendChild(updateButton);
-    }
-    updateButton.style.display = 'block';
-    updateButton.onclick = function(){
-      updateButton.disabled = true;
-      updateButton.textContent = 'Updating…';
-      worker.postMessage({type:'SKIP_WAITING'});
-    };
-  }
-
-  function watchForUpdate(reg){
-    if (reg.waiting) showUpdate(reg.waiting);
-    reg.addEventListener('updatefound', function(){
-      const worker = reg.installing;
-      if (!worker) return;
-      worker.addEventListener('statechange', function(){
-        if (worker.state === 'installed' && navigator.serviceWorker.controller){
-          showUpdate(worker);
-        }
-      });
-    });
-  }
-
-  window.addEventListener('load', async function(){
-    try{
-      registration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
-      watchForUpdate(registration);
-      await registration.update();
-      setInterval(function(){ registration && registration.update().catch(()=>{}); }, 60 * 60 * 1000);
-    }catch(err){ console.log('SW registration failed', err); }
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log('SW registration failed', err));
   });
-
-  navigator.serviceWorker.addEventListener('controllerchange', function(){
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
-})();
+}
 </script>
 </body>
 </html>
