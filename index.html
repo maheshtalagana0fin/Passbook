@@ -653,10 +653,6 @@
   let editingLoanId = null;
   let editingCardId = null;
   // Per-account local cache. Never use one shared localStorage key for all users.
-  const LEGACY_KEY = "passbook:transactions";
-  const LEGACY_LOANS_KEY = "passbook:loans";
-  const LEGACY_CARDS_KEY = "passbook:cards";
-  const LEGACY_MIGRATED_PREFIX = "passbook:legacyMigration:";
   const LAST_USED_PREFIX = "passbook:lastUsed:";
 
   function userKey(kind, uid){
@@ -673,7 +669,6 @@
   let db = null;
   let docRef = null;
   let unsubscribeSnapshot = null;
-  let suppressNextSnapshotWrite = false; // avoids feedback loop when we write locally then hear our own snapshot
 
   const isConfigured = FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith("PASTE_");
 
@@ -707,37 +702,12 @@
     try{ const r3 = localStorage.getItem(currentKey("cards")); cards = r3 ? JSON.parse(r3) : []; }catch(e){ cards = []; }
   }
 
-  function readLegacyData(){
-    let legacyTransactions=[], legacyLoans=[], legacyCards=[];
-    try{ const r=localStorage.getItem(LEGACY_KEY); legacyTransactions=r?JSON.parse(r):[]; }catch(e){}
-    try{ const r=localStorage.getItem(LEGACY_LOANS_KEY); legacyLoans=r?JSON.parse(r):[]; }catch(e){}
-    try{ const r=localStorage.getItem(LEGACY_CARDS_KEY); legacyCards=r?JSON.parse(r):[]; }catch(e){}
-    return { transactions: legacyTransactions, loans: legacyLoans, cards: legacyCards };
-  }
-
-  async function handleFirstAccountSetup(){
-    if (!currentUser || !docRef) return;
-    const marker = LEGACY_MIGRATED_PREFIX + currentUser.uid;
-    const legacy = readLegacyData();
-    const hasLegacy = legacy.transactions.length || legacy.loans.length || legacy.cards.length;
-    if (hasLegacy && !localStorage.getItem(marker)){
-      const ok = confirm(
-        `Existing Passbook data found on this device.\n\n`+
-        `Transactions: ${legacy.transactions.length}\nLoans: ${legacy.loans.length}\nCards: ${legacy.cards.length}\n\n`+
-        `Do you want to add this existing data to ${currentUser.email || 'this Google account'}?\n\n`+
-        `OK = MIGRATE MY DATA\nCancel = START WITH AN EMPTY ACCOUNT`
-      );
-      localStorage.setItem(marker, "done");
-      if (ok){
-        transactions=legacy.transactions; loans=legacy.loans; cards=legacy.cards;
-        await pushToCloud();
-      } else {
-        clearInMemoryData();
-        mirrorToLocalStorage();
-      }
-    } else {
-      loadLocalMirror();
-    }
+  // Brand-new cloud account (no Firestore document yet for this UID).
+  // Per privacy requirements: never prompt to migrate old/shared local data,
+  // and never auto-copy it in. This account only ever loads its own
+  // UID-scoped local cache (which will simply be empty on a fresh device/account).
+  function initializeNewAccount(){
+    loadLocalMirror();
   }
 
   async function loadData(){
@@ -775,20 +745,26 @@
     });
 
     firebase.auth().onAuthStateChanged(user => {
+      // Always tear down the previous account's live listener and clear its
+      // data from memory/UI FIRST — before doing anything with the new
+      // account. This matters even when switching directly from account A to
+      // account B without an explicit sign-out in between (e.g. via the
+      // Google account picker), because otherwise A's snapshot listener can
+      // keep running and overwrite B's in-memory data if A's cloud data
+      // changes later.
+      if (unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+      docRef = null;
+      clearInMemoryData();
+      render();
+
       if (user){
-        // Clear the previous account's data before loading this account.
-        if (!currentUser || currentUser.uid !== user.uid) clearInMemoryData();
         currentUser = user;
         $("authGate").style.display = "none";
         $("signOutBtn").style.display = "inline";
         $("coverAccount").textContent = user.email || user.displayName || "Signed in";
         attachSync(user.uid);
       } else {
-        if (unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
         currentUser = null;
-        docRef = null;
-        clearInMemoryData();
-        render();
         $("authGate").style.display = "flex";
         $("signOutBtn").style.display = "none";
         $("coverAccount").textContent = "";
@@ -843,6 +819,11 @@
   }
 
   function attachSync(uid){
+    // Defensive: if something re-enters attachSync for the same or a new
+    // uid before the previous listener was torn down, always kill the old
+    // one first so two accounts can never be listened to at once.
+    if (unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+
     docRef = db.collection("passbooks").doc(uid);
     setSyncStatus(null, "Syncing…");
 
@@ -853,22 +834,26 @@
     }).catch(() => { previousLastUsed = null; });
 
     unsubscribeSnapshot = docRef.onSnapshot(snap => {
+      // Guard against a stale listener from a previous account delivering a
+      // late callback after the user has already switched again.
+      if (!currentUser || currentUser.uid !== uid) return;
+
       if (snap.exists){
         const data = snap.data();
         transactions = Array.isArray(data.transactions) ? data.transactions : [];
         loans = Array.isArray(data.loans) ? data.loans : [];
         cards = Array.isArray(data.cards) ? data.cards : [];
+        mirrorToLocalStorage();
       } else {
-        // Brand-new cloud account: migrate old shared cache only with explicit approval.
-        handleFirstAccountSetup().catch(err => {
-          console.error("First-account setup failed", err);
-          clearInMemoryData();
-        });
+        // Brand-new cloud account: never auto-migrate or prompt about old
+        // shared/legacy local data. Just start this account from its own
+        // UID-scoped local cache (empty on a fresh device).
+        initializeNewAccount();
       }
-      if (snap.exists) mirrorToLocalStorage();
       setSyncStatus('synced', snap.metadata.fromCache ? "Synced (offline cache)" : "Synced");
       render();
     }, err => {
+      if (!currentUser || currentUser.uid !== uid) return;
       console.error(err);
       setSyncStatus('error', "Sync error — using local copy");
       loadLocalMirror();
@@ -878,7 +863,7 @@
 
   async function pushToCloud(){
     mirrorToLocalStorage();
-    if (!isConfigured || !docRef) return;
+    if (!isConfigured || !docRef || !currentUser) return;
     try{
       await docRef.set({
         transactions, loans, cards,
